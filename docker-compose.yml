@@ -1,0 +1,26 @@
+services:
+  tgvmax:
+    build: .
+    image: tgvmax-dashboard:latest
+    container_name: tgvmax
+    ports:
+      # http://localhost:8765 (change HOST_PORT dans .env pour un autre port hôte)
+      - "${HOST_PORT:-8765}:8765"
+    environment:
+      MAXFINDER_HOST: "0.0.0.0"
+      PORT: "8765"
+      DATA_DIR: "/data"
+    env_file:
+      - .env            # fournit SNCF_TOKEN (clé API Navitia)
+    volumes:
+      - geocache:/data  # persiste geo_cache.json entre les redémarrages
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8765/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  geocache:

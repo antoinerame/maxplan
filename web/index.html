@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TGV Max Planner</title>
+<meta name="description" content="Trouve les TGV Max à 0 €, y compris avec correspondances et compléments TER, sur une carte de France.">
+<meta name="theme-color" content="#123B7B" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1C1C26" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TGV Max">
+<meta property="og:title" content="TGV Max Planner">
+<meta property="og:description" content="Les TGV Max à 0 €, correspondances et compléments TER compris.">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preload" href="/fonts/barlow-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/atkinson-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="panel" id="panel" data-sheet="half" aria-label="Recherche de trajets TGV Max">
+    <button class="sheet-handle" id="sheet-handle" type="button" aria-label="Agrandir ou réduire le panneau"><span></span></button>
+
+    <header class="top">
+      <div class="wordmark">
+        <h1 class="wm-title"><span class="wm-tag">0 €</span>TGV Max <em>Planner</em></h1>
+        <span class="wm-sub" id="data-status">Chargement des données SNCF…</span>
+      </div>
+      <div class="top-actions">
+        <button class="sub-chip" id="btn-profile" type="button" aria-label="Mon profil : abonnement et réductions TER"></button>
+        <button class="icon-btn" id="btn-theme" type="button"></button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist" aria-label="Modes">
+      <button class="tab" role="tab" type="button" data-tab="search" aria-selected="true" aria-controls="view-search">Itinéraire</button>
+      <button class="tab" role="tab" type="button" data-tab="explore" aria-selected="false" aria-controls="view-explore">Explorer</button>
+      <button class="tab" role="tab" type="button" data-tab="favs" aria-selected="false" aria-controls="view-favs">Favoris <span class="count" id="fav-count"></span></button>
+    </nav>
+
+    <div class="scroll" id="scroll">
+      <!-- ============ ITINÉRAIRE ============ -->
+      <section class="view" id="view-search" role="tabpanel">
+        <form class="form" id="form-search" autocomplete="off" novalidate>
+          <div class="od">
+            <div class="od-rail" aria-hidden="true"><i class="o"></i><b></b><i class="d"></i></div>
+            <div class="od-fields">
+              <div class="field">
+                <label for="s-from">Départ</label>
+                <div class="station-box">
+                  <input class="input" id="s-from" placeholder="Gare ou ville" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ac-s-from">
+                  <button class="inline-btn" type="button" data-locate="s-from" aria-label="Utiliser la gare la plus proche de moi" title="Gare la plus proche de moi"></button>
+                </div>
+                <ul class="ac" id="ac-s-from" role="listbox" hidden></ul>
+              </div>
+              <div class="field">
+                <label for="s-to">Arrivée</label>
+                <div class="station-box">
+                  <input class="input" id="s-to" placeholder="Gare, ville ou village" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ac-s-to">
+                </div>
+                <ul class="ac" id="ac-s-to" role="listbox" hidden></ul>
+              </div>
+            </div>
+            <button class="swap" id="btn-swap" type="button" aria-label="Inverser départ et arrivée" title="Inverser départ et arrivée"></button>
+          </div>
+
+          <div class="quick" role="group" aria-label="Dates rapides">
+            <button class="chip" type="button" data-quick="today">Aujourd'hui</button>
+            <button class="chip" type="button" data-quick="tomorrow">Demain</button>
+            <button class="chip" type="button" data-quick="weekend">Ce week-end</button>
+            <button class="chip" type="button" data-quick="week">7 jours</button>
+          </div>
+
+          <div class="grid2">
+            <div class="field"><label for="s-fd">Du</label><input class="input" type="date" id="s-fd"></div>
+            <div class="field"><label for="s-start">À partir de <span class="opt">· facultatif</span></label><input class="input" type="time" id="s-start"></div>
+            <div class="field"><label for="s-td">Au</label><input class="input" type="date" id="s-td"></div>
+            <div class="field"><label for="s-end">Jusqu'à <span class="opt">· facultatif</span></label><input class="input" type="time" id="s-end"></div>
+          </div>
+
+          <details class="opts" id="opts">
+            <summary>Options <span class="opts-sum" id="opts-sum"></span></summary>
+            <div class="opts-body">
+              <div class="opt-row"><span>Correspondances TGV Max</span>
+                <div class="seg" data-name="maxconn" role="group" aria-label="Correspondances TGV Max">
+                  <button type="button" data-v="0" aria-pressed="false">0</button><button type="button" data-v="1" aria-pressed="true">1</button><button type="button" data-v="2" aria-pressed="false">2</button>
+                </div>
+              </div>
+              <label class="switch"><input type="checkbox" id="s-ter" checked><span class="track"></span><span>Compléter en TER <small>Payant — pour atteindre les gares sans TGV Max</small></span></label>
+              <div class="opt-row" id="row-tt"><span>Correspondances TER</span>
+                <div class="seg" data-name="ter_transfers" role="group" aria-label="Correspondances TER">
+                  <button type="button" data-v="0" aria-pressed="false">0</button><button type="button" data-v="1" aria-pressed="true">1</button><button type="button" data-v="2" aria-pressed="false">2</button><button type="button" data-v="3" aria-pressed="false">3</button>
+                </div>
+              </div>
+              <label class="switch"><input type="checkbox" id="s-nights"><span class="track"></span><span>Trajets de nuit <small>Train de nuit, ou attente en gare entre 22 h et 6 h</small></span></label>
+            </div>
+          </details>
+
+          <div class="actions">
+            <button class="btn primary" type="submit" id="btn-search">Rechercher</button>
+            <button class="btn ghost square" type="button" id="btn-fav" aria-pressed="false" aria-label="Enregistrer ce trajet dans les favoris" title="Enregistrer dans les favoris"></button>
+          </div>
+        </form>
+        <div class="results" id="results" aria-live="polite"></div>
+      </section>
+
+      <!-- ============ EXPLORER ============ -->
+      <section class="view" id="view-explore" role="tabpanel" hidden>
+        <form class="form" id="form-explore" autocomplete="off" novalidate>
+          <div class="field">
+            <label for="e-from">Au départ de</label>
+            <div class="station-box">
+              <input class="input" id="e-from" placeholder="Gare ou ville" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ac-e-from">
+              <button class="inline-btn" type="button" data-locate="e-from" aria-label="Utiliser la gare la plus proche de moi" title="Gare la plus proche de moi"></button>
+            </div>
+            <ul class="ac" id="ac-e-from" role="listbox" hidden></ul>
+          </div>
+          <div class="grid2">
+            <div class="field"><label for="e-date">Le</label><input class="input" type="date" id="e-date"></div>
+            <div class="field"><span class="lbl-sm">Correspondances</span>
+              <div class="seg" data-name="e_maxconn" role="group" aria-label="Correspondances TGV Max">
+                <button type="button" data-v="0" aria-pressed="false">Direct</button><button type="button" data-v="1" aria-pressed="true">1</button><button type="button" data-v="2" aria-pressed="false">2</button>
+              </div>
+            </div>
+          </div>
+          <div class="actions"><button class="btn primary" type="submit" id="btn-explore">Voir où aller à 0 €</button></div>
+        </form>
+        <div class="results" id="explore-results" aria-live="polite"></div>
+      </section>
+
+      <!-- ============ FAVORIS ============ -->
+      <section class="view" id="view-favs" role="tabpanel" hidden>
+        <div id="favs"></div>
+      </section>
+    </div>
+
+    <footer class="foot">Site non officiel. Places TGV Max d'après l'open data SNCF (mis à jour 1×/jour, à reconfirmer), prix TER estimés. Réservation sur SNCF Connect.</footer>
+  </aside>
+
+  <main class="map-wrap">
+    <div id="map" role="region" aria-label="Carte de France des trajets"></div>
+    <div class="legend" aria-hidden="true">
+      <div class="lg"><i></i>TGV Max · 0 €</div>
+      <div class="lg"><i class="paid"></i>TER · payant</div>
+      <div class="lg"><i class="via"></i>Avec correspondance</div>
+    </div>
+  </main>
+</div>
+
+<dialog class="dialog" id="dlg-profile" aria-labelledby="dlg-title">
+  <form class="dlg-inner" method="dialog" id="form-profile">
+    <header>
+      <h2 id="dlg-title">Mon profil</h2>
+      <p id="dlg-intro">Sert à savoir quels trains sont gratuits pour toi et à estimer le prix des TER. Enregistré sur cet appareil uniquement.</p>
+    </header>
+    <div class="dlg-body">
+      <fieldset>
+        <legend>Ton abonnement</legend>
+        <label class="radio-card"><input type="radio" name="sub" value="jeune"><span><b>Max Jeune</b><small>16–27 ans · 0 € tous les jours, hors périodes de forte affluence</small></span></label>
+        <label class="radio-card"><input type="radio" name="sub" value="senior"><span><b>Max Senior</b><small>60 ans et plus · 0 € du lundi au vendredi</small></span></label>
+      </fieldset>
+      <fieldset>
+        <legend>Réductions TER par région</legend>
+        <p class="hint">Carte jeune régionale, abonnement… Indique la réduction que tu as sur les TER de chaque région (100 % = abonnement illimité). Le TER n'est pas inclus dans les abonnements Max.</p>
+        <div class="region-list" id="region-list"></div>
+      </fieldset>
+    </div>
+    <footer>
+      <button class="btn ghost" value="cancel" formnovalidate>Annuler</button>
+      <button class="btn primary" value="save">Enregistrer</button>
+    </footer>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="/vendor/leaflet.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

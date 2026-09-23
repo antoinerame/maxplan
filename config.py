@@ -1,0 +1,49 @@
+# Configuration locale du dashboard TGV Max.
+import os
+
+
+def _load_dotenv(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")):
+    """Lit le .env local (lancement hors Docker) sans écraser les variables déjà définies."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                k, sep, v = line.strip().partition("=")
+                if sep and k and not k.startswith("#"):
+                    os.environ.setdefault(k.strip(), v.strip().strip('"\''))
+    except OSError:
+        pass
+
+
+_load_dotenv()
+
+# Clé API SNCF (Navitia / api.sncf.com) : variable d'env SNCF_TOKEN ou fichier .env (jamais versionnée).
+SNCF_TOKEN = os.environ.get("SNCF_TOKEN", "")
+
+HOST = os.environ.get("MAXFINDER_HOST", "127.0.0.1")
+PORT = int(os.environ.get("MAXFINDER_PORT", os.environ.get("PORT", "8765")))
+
+# Répertoire de données persistantes (cache de géocodage). En conteneur : /data (volume).
+DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
+
+# Réglages du moteur de recherche.
+MIN_CONNECTION_MIN = 15          # temps de correspondance mini (gare simple)
+MIN_CONNECTION_INTRAMUROS = 30   # idem pour une ville multi-gares "(intramuros)"
+MAX_LAYOVER_MIN = 4 * 60         # attente max en correspondance
+MAX_TOTAL_MIN = 16 * 60          # durée totale max d'un itinéraire
+TER_MAX_TAIL_MIN = 4 * 60        # durée max d'un segment TER de complément
+TER_MAX_DISTANCE_KM = 320        # ne tente un pont TER que vers une gare frontière < cette distance
+TER_CANDIDATES = 7               # nb de gares frontières les plus proches testées en TER
+
+# Caches (secondes). L'open data est rafraîchi 1×/jour : 3 h suffit largement.
+EDGES_TTL = 3 * 3600
+STATIONS_TTL = 12 * 3600
+JOURNEY_TTL = 6 * 3600
+
+# Garde-fous quand le site est partagé publiquement
+MAX_RANGE_DAYS = 31
+RATE_LIMITS = {               # groupe -> (requêtes autorisées, fenêtre en secondes) par adresse IP
+    "search": (60, 60),
+    "explore": (20, 60),
+    "stations": (150, 60),
+    "nearest": (30, 60),
+}

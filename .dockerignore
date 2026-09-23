@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+*.log
+__pycache__/
+*.pyc
+geo_cache.json
+data/
+.claude/
+README.md

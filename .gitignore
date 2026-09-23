@@ -1,0 +1,25 @@
+# Secrets — la clé API SNCF ne doit jamais être versionnée
+.env
+.env.*
+!.env.example
+
+# Caches et données générées
+geo_cache.json
+data/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Outils locaux
+.claude/
+.vscode/
+.idea/
+
+# Système
+.DS_Store
+Thumbs.db
+desktop.ini
