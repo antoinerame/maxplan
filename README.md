@@ -83,6 +83,7 @@ navigateur. Une recherche peut aussi se partager par lien (bouton « Partager »
 |---|---|
 | `server.py` | Serveur HTTP (stdlib, zéro dépendance) : API + fichiers ; caches à durée de vie, calculs TER en parallèle, limite de requêtes par IP, gzip, en-têtes de sécurité (CSP). |
 | `tgvmax_core.py` | Open data `tgvmax` + moteur de graphe (correspondances, fenêtre horaire, nuit). |
+| `gtfs.py` | Horaires SNCF en local (export GTFS open data, ~6 mois, rechargé chaque nuit) : calcul des trajets TER sans l'API (algorithme Connection Scan), recherche de gares. |
 | `navitia.py` | API SNCF/Navitia : géocodage (cache disque), autocomplétion, itinéraires TER (cache mémoire). |
 | `fares.py` | Fourchettes de prix officielles des billets TGV INOUI / Intercités (open data), pour « Rentable ? ». |
 | `history.py` | Historique quotidien des places Max (SQLite) et statistiques par liaison. |
@@ -99,7 +100,9 @@ API : `/api/meta`, `/api/search`, `/api/calendar`, `/api/ideas`, `/api/value`, `
 
 - Places Max : open data SNCF `tgvmax` (ODbL), ~30 jours glissants, **mis à jour 1×/jour** → dispo
   indicative. Le vendredi et les veilles de vacances ont souvent peu ou pas de places Max.
-- Horaires TER : API SNCF (Navitia), clé gratuite ~5 000 requêtes/jour partagée par tous les
+- Horaires TER : calculés en local à partir de l'export GTFS de la SNCF (TER, cars TER, Intercités ;
+  ~6 mois d'horaires réels). L'API SNCF (Navitia) ne sert plus qu'en secours, pour les cars régionaux
+  hors SNCF absents du GTFS (ZOU!, etc.) : clé gratuite ~5 000 requêtes/jour partagée par tous les
   visiteurs (les résultats sont mis en cache pour l'économiser).
 - Fond de carte : relief Esri (sans libellés) ; noms de villes et régions posés par l'app, en français.
 - Lien SNCF Connect : chaque tronçon ouvre SNCF Connect directement sur la liste des trains du bon

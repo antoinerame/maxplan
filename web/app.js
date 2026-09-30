@@ -1054,7 +1054,8 @@
       const sub = profile.sub === 'senior' ? 'Max Senior' : 'Max Jeune';
       const title = diff > 5 ? `${sub} te fait économiser ≈ ${eur(diff)} par mois` : diff < -5 ? `${sub} te coûterait ≈ ${eur(-diff)} de plus par mois` : `${sub} ou pas, ça revient à peu près au même`;
       verdict = `<div class="verdict ${diff > 5 ? 'good' : diff < -5 ? 'bad' : ''}">
-        <small class="v-scope">${vTrips.length > 1 ? `Pour l'ensemble de tes ${vTrips.length} trajets` : 'Pour ce trajet'} (l'abonnement couvre tous les trajets)</small>
+        <div class="v-top"><span class="v-pill ${diff > 5 ? 'good' : diff < -5 ? 'bad' : ''}">${diff > 5 ? 'Rentable' : diff < -5 ? 'Pas rentable' : 'Équivalent'}</span>
+          <small class="v-scope">${vTrips.length > 1 ? `Pour l'ensemble de tes ${vTrips.length} trajets` : 'Pour ce trajet'}</small></div>
         <h3>${title}</h3>
         ${diff > 5 ? `<p class="v-big">soit ≈ ${eur(diff * 12)} par an</p>` : ''}
         <p>Avec ${sub} : ${eur(maxPrice)} d'abonnement + ≈ ${eur(totMax)} de billets ou de TER les jours sans place à 0 € = <b>≈ ${eur(withMax)} par mois</b>.</p>

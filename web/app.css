@@ -602,3 +602,12 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 .faq details[open] summary::after{transform:translateY(2px) rotate(-135deg)}
 .faq details p{margin:0;padding:0 14px 14px;color:var(--ink-2);font-size:14px;max-width:68ch}
 .app:not([data-tab="search"]) .faq,.app[data-view="results"] .faq{display:none}
+
+/* verdict « Rentable ? » : sobre, la couleur seulement dans la pastille */
+.verdict,.verdict.good,.verdict.bad{border:1px solid var(--line-soft);background:var(--surface)}
+.v-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.v-pill{font-size:12px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--surface-3);color:var(--ink-2)}
+.v-pill.good{background:var(--free-soft);color:var(--free-ink)}
+.v-pill.bad{background:var(--surface-3);color:var(--ink-2)}
+.verdict .v-big{color:var(--ink)}
+.v-warn{background:var(--surface-2);border-left:3px solid var(--line);border-radius:0 var(--r) var(--r) 0;color:var(--ink-2)}

@@ -13,3 +13,4 @@ feedback.jsonl
 geo_cache*.json
 .env.*
 !.env.example
+gtfs-sncf.zip*

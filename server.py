@@ -35,6 +35,7 @@ except Exception:
 
 import config
 import fares
+import gtfs
 import history
 import pricing
 import regions
@@ -197,7 +198,21 @@ def dest_place(dst, targets, stations):
             g = navitia.geocode(t)
             if g:
                 return g
-    return navitia.geocode(dst)
+    return free_place(dst)
+
+
+def free_place(label):
+    """Lieu saisi librement (village, gare hors réseau Max) : d'abord dans les horaires GTFS
+    (aucune requête à l'API SNCF), sinon géocodage par l'API."""
+    if gtfs.ready():
+        hits = gtfs.places(nice_place(label), limit=1)
+        if hits:
+            return hits[0]
+    return navitia.geocode(label)
+
+
+def ter_coverage():
+    return gtfs.coverage() or navitia.coverage()
 
 
 def drop_dominated(itins):
@@ -245,7 +260,23 @@ def ter_query_date(ymd):
     return None, False
 
 
+def tail_end(jr, ready):
+    """Minutes entre la fin du train Max (+ correspondance) et l'arrivée du TER."""
+    wait = (core.hhmm_to_min(jr["departure"]) - ready % 1440) % 1440
+    return wait + jr["duration_min"]
+
+
+def tail_too_slow(jr, ready, g, dest):
+    """Le trajet local (GTFS) est absent ou anormalement long pour la distance : un car régional hors
+    SNCF (absent du GTFS) fait peut-être bien mieux, on demandera à l'API."""
+    if jr is None:
+        return True
+    km = core.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
+    return tail_end(jr, ready) > max(90, 30 + 1.2 * km)
+
+
 def ter_estimated_notice():
+
     end = (navitia.coverage() or {}).get("end") or ""
     when = f" (publiés jusqu'au {int(end[6:8])}/{end[4:6]})" if len(end) == 8 else ""
     return ("Horaires TER estimés : l'API de la SNCF ne donne pas encore les horaires de ce jour"
@@ -307,20 +338,30 @@ def search_one_day(src, dst, date, opts):
                 if len(kept) >= quota:
                     break
             jobs += [(s, fgeo[s], p) for p in kept]
-        if jobs and not IP_BUDGET.take(opts.get("ip", ""), len(jobs)):
-            jobs = []
-            opts["ter_limited"] = True
+
 
         def tail(job):
             s, g, path = job
             ready = path[-1]["arr"] + core.min_connection(s)       # minutes depuis le jour J (peut dépasser 1440)
             jdate = shift(date, ready // 1440)                      # après un train de nuit : le lendemain !
+            # 1) horaires réels calculés en local (GTFS SNCF) : aucune requête à l'API
+            local = gtfs.ready() and gtfs.covers(jdate) and gtfs.knows(g["id"]) and gtfs.knows(dest_geo["id"])
+            jr = gtfs.journey(g["id"], dest_geo["id"], jdate, core.min_to_hhmm(ready)) if local else None
+            if local and not tail_too_slow(jr, ready, g, dest_geo):
+                return job, jr, ready, False
+            # 2) en secours, l'API SNCF : elle connaît aussi les cars régionaux hors SNCF (ZOU!, etc.)
+            #    absents du GTFS. Compté dans les budgets (global et par visiteur).
+            if not IP_BUDGET.take(opts.get("ip", ""), 1):
+                opts["ter_limited"] = jr is None
+                return job, jr, ready, False
             qdate, estimated = ter_query_date(jdate)
             if not qdate:
-                return job, None, None, False
-            jr = navitia.journey(g["id"], dest_geo["id"], qdate, core.min_to_hhmm(ready),
-                                 max_transfers=opts["ter_transfers"])
-            return job, jr, ready, estimated
+                return job, jr, ready, False
+            api = navitia.journey(g["id"], dest_geo["id"], qdate, core.min_to_hhmm(ready),
+                                  max_transfers=opts["ter_transfers"])
+            if api and (jr is None or tail_end(api, ready) < tail_end(jr, ready)):
+                return job, api, ready, estimated
+            return job, jr, ready, False
 
         for (s, g, path), jr, ready, estimated in IO_POOL.map(tail, jobs):
             if not jr or jr["duration_min"] > config.TER_MAX_TAIL_MIN:
@@ -489,7 +530,7 @@ def do_search(qs):
         return dict(r, date=day, weekday=core.weekday(day))
 
     days = list(DAY_POOL.map(one, dates)) if len(dates) > 1 else [one(dates[0])]
-    dest_geo = navitia.geocode(dst)
+    dest_geo = free_place(dst)
     return {
         "mode": "search", "from": src, "to": dst, "prefs": prefs, "days": days,
         "to_coord": dest_geo and {"lat": dest_geo["lat"], "lon": dest_geo["lon"],
@@ -539,9 +580,11 @@ def do_stations(qs):
             seen.add(key)
             out.append({"label": label, "name": display_name(label, navitia._cache.get(label) or None),
                         "max": True})
-    if kind == "dest" and len(out) < 3:  # peu de gares Max : aussi des lieux hors réseau Max (ex. Manosque)
+    # destinations : aussi des gares hors réseau Max (ex. Manosque), prises dans les horaires GTFS
+    # (gratuit) ; l'API SNCF seulement en secours et quand il y a peu de gares Max
+    if kind == "dest" and (gtfs.ready() or len(out) < 3):
 
-        for p in navitia.places(q, limit=6):
+        for p in (gtfs.places(q, limit=6) if gtfs.ready() else navitia.places(q, limit=6)):
             key = core.normalize(nice_place(p["name"]))
             if key not in seen:
                 seen.add(key)
@@ -591,7 +634,7 @@ def do_calendar(qs):
                 "best_min": min(x["_arr"] - x["_dep"] for x in its)}
 
     return {"from": src, "to": dst, "days": list(DAY_POOL.map(one, core.dataset_dates())),
-            "ter_coverage": navitia.coverage()}
+            "ter_coverage": ter_coverage()}
 
 
 # ======================================================================= retours des visiteurs
@@ -783,7 +826,7 @@ def do_meta(qs):
     return {
         "version": VERSION,
         "dates": {"start": dates[0] if dates else None, "end": dates[-1] if dates else None},
-        "ter_coverage": navitia.coverage(),
+        "ter_coverage": ter_coverage(),
         "regions": regions.as_list(),
     }
 
@@ -1022,6 +1065,8 @@ def main():
     srv.daemon_threads = True
     threading.Thread(target=warmup, daemon=True).start()
     threading.Thread(target=history_loop, daemon=True).start()
+    threading.Thread(target=gtfs.refresh_loop, daemon=True).start()
+
 
     print(f"\n🚄  MaxPlan {VERSION}  →  http://{config.HOST}:{config.PORT}", flush=True)
     print("    Ctrl+C pour arrêter.\n", flush=True)
