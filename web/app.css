@@ -678,3 +678,6 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
   #view-infos .info-card{height:100%}
   .nc-col .nc-val{font-size:10.5px;white-space:nowrap}
 }
+
+/* la barre d'onglets ne doit jamais être écrasée quand le panneau (hauteur fixe) déborde */
+.tabs{flex:none}
