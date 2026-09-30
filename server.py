@@ -593,13 +593,58 @@ def feedback_page():
            if str(r.get("page", "")).startswith("/") else "")
         + "</article>" for r in reversed(rows))
     return ("<!DOCTYPE html><html lang=fr><meta charset=utf-8><meta name=viewport content='width=device-width'>"
-            "<meta name=robots content=noindex><title>Retours — MaxPlan</title><style>"
+            "<meta name=robots content=noindex><title>Retours · MaxPlan</title><style>"
             "body{font:15px/1.5 system-ui,sans-serif;max-width:760px;margin:0 auto;padding:24px 16px;background:#F2F2F7;color:#0C131F}"
             "article{background:#fff;border-radius:12px;padding:12px 16px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}"
             "header{display:flex;justify-content:space-between;gap:10px}time{color:#676D7E;font-size:13px}"
             "p{white-space:pre-wrap;margin:6px 0}small{display:block;color:#676D7E;word-break:break-all}"
             f"</style><h1>Retours des visiteurs ({len(rows)})</h1>"
             + (items or "<p>Aucun retour pour l'instant.</p>") + "</html>")
+
+
+# Idées de l'accueil : grandes liaisons, gardées seulement si des trains à 0 € existent vraiment ce jour-là.
+IDEA_CITIES = {"paris": "Paris", "lyon": "Lyon", "marseille": "Marseille", "bordeaux": "Bordeaux",
+               "toulouse": "Toulouse", "lille": "Lille", "nantes": "Nantes", "strasbourg": "Strasbourg",
+               "montpellier": "Montpellier", "nice": "Nice", "rennes": "Rennes", "grenoble": "Grenoble",
+               "avignon": "Avignon", "annecy": "Annecy", "la rochelle": "La Rochelle", "dijon": "Dijon"}
+IDEA_PAIRS = [("paris", "lyon"), ("paris", "marseille"), ("paris", "bordeaux"), ("paris", "toulouse"),
+              ("paris", "nantes"), ("paris", "strasbourg"), ("paris", "montpellier"), ("paris", "nice"),
+              ("paris", "rennes"), ("paris", "lille"), ("paris", "annecy"), ("paris", "la rochelle"),
+              ("lyon", "marseille"), ("lyon", "montpellier"), ("lyon", "lille"), ("lyon", "strasbourg"),
+              ("lille", "marseille"), ("lille", "bordeaux"), ("bordeaux", "toulouse"), ("marseille", "nice"),
+              ("nantes", "lyon"), ("strasbourg", "marseille"), ("rennes", "lyon"), ("paris", "grenoble")]
+
+
+def do_ideas(qs):
+    date = _p(qs, "date")
+    if not DATE_RE.match(date):
+        raise BadRequest("Date invalide (format attendu AAAA-MM-JJ).")
+    prefs = pricing.prefs_from_qs(qs)
+    if senior_weekend(prefs, date):
+        return {"date": date, "ideas": []}
+    edges = edges_for(date)
+    stations = {e["o"] for e in edges} | {e["d"] for e in edges}
+    pairs = list(IDEA_PAIRS)
+    origin = core.normalize(_p(qs, "from"))
+    if origin in IDEA_CITIES:        # d'abord des idées au départ de la ville de l'utilisateur
+        pairs = [(origin, c) for c in IDEA_CITIES if c != origin] + pairs
+    ideas, seen = [], set()
+    for o, d in pairs:
+        if (o, d) in seen:
+            continue
+        seen.add((o, d))
+        paths = core.search(edges, core.resolve_city(o, stations), core.resolve_city(d, stations),
+                            max_conn=1, max_results=60)
+        its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p}
+                              for p in paths if not path_nocturnal(p)])
+        if its:
+            ideas.append({"from": o, "to": d, "from_name": IDEA_CITIES[o], "to_name": IDEA_CITIES[d],
+                          "n": len(its), "direct": any(len(x["legs"]) == 1 for x in its),
+                          "first": core.min_to_hhmm(min(x["_dep"] for x in its)),
+                          "fastest": min(x["_arr"] - x["_dep"] for x in its)})
+        if len(ideas) >= 6:
+            break
+    return {"date": date, "ideas": ideas}
 
 
 def do_meta(qs):
@@ -618,6 +663,8 @@ ROUTES = {
     "/api/stations": ("stations", do_stations),
     "/api/nearest": ("nearest", do_nearest),
     "/api/calendar": ("calendar", do_calendar),
+    "/api/ideas": ("calendar", do_ideas),
+
     "/api/meta": (None, do_meta),
 }
 
@@ -780,7 +827,7 @@ class Handler(BaseHTTPRequestHandler):
         if group:
             limit, window = config.RATE_LIMITS[group]
             if not LIMITER.allow((self.client_ip(), group), limit, window):
-                return self._json({"error": "Beaucoup de recherches d'un coup — réessaie dans une minute."},
+                return self._json({"error": "Beaucoup de recherches d'un coup, réessaie dans une minute."},
                                   429, {"Retry-After": "30"})
         try:
             return self._json(fn(qs))

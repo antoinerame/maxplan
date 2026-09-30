@@ -21,7 +21,7 @@
 <body>
 <div class="app" id="app" data-view="home" data-map="off">
   <header class="bar">
-    <a class="brand" href="/" aria-label="MaxPlan — accueil"><span class="brand-name">Max<em>Plan</em></span></a>
+    <a class="brand" href="/" aria-label="MaxPlan, accueil"><span class="brand-name">Max<em>Plan</em></span></a>
     <span class="bar-status" id="data-status">Chargement des données SNCF…</span>
     <div class="bar-actions">
       <button class="bar-btn" id="btn-feedback" type="button" aria-label="Signaler un problème ou proposer une idée"></button>
@@ -32,17 +32,18 @@
 
   <div class="stage">
     <aside class="panel" id="panel" aria-label="Recherche de trajets">
+      <nav class="tabs" role="tablist" aria-label="Modes">
+        <button class="tab" role="tab" type="button" data-tab="search" aria-selected="true" aria-controls="view-search">Itinéraire</button>
+        <button class="tab" role="tab" type="button" data-tab="explore" aria-selected="false" aria-controls="view-explore">Explorer</button>
+        <button class="tab" role="tab" type="button" data-tab="favs" aria-selected="false" aria-controls="view-favs">Favoris <span class="count" id="fav-count"></span></button>
+      </nav>
+
       <div class="hero" id="hero">
         <h1>Tes trains à 0 €, <span>correspondances et TER compris</span></h1>
         <p>Tous les TGV INOUI et Intercités ouverts au Max Jeune et au Max Senior, même quand il faut changer de train, et le TER pour finir le trajet.</p>
         <p class="hero-note">Site non officiel, indépendant de la SNCF.</p>
       </div>
 
-      <nav class="tabs" role="tablist" aria-label="Modes">
-        <button class="tab" role="tab" type="button" data-tab="search" aria-selected="true" aria-controls="view-search">Itinéraire</button>
-        <button class="tab" role="tab" type="button" data-tab="explore" aria-selected="false" aria-controls="view-explore">Explorer</button>
-        <button class="tab" role="tab" type="button" data-tab="favs" aria-selected="false" aria-controls="view-favs">Favoris <span class="count" id="fav-count"></span></button>
-      </nav>
 
       <div class="scroll" id="scroll">
         <!-- ============ ITINÉRAIRE ============ -->
@@ -199,7 +200,7 @@
       </fieldset>
       <label class="fb-field"><span>Ton message</span>
         <textarea id="fb-message" rows="5" maxlength="2000" required placeholder="Ex. : Paris → Lyon le 12 octobre, le train de 8 h 04 n'est pas à 0 € sur SNCF Connect."></textarea></label>
-      <label class="fb-field"><span>Pour te répondre <small>facultatif — e-mail, Instagram…</small></span>
+      <label class="fb-field"><span>Pour te répondre <small>(facultatif) e-mail, Instagram…</small></span>
         <input id="fb-contact" maxlength="200" autocomplete="email"></label>
       <p class="hint">La recherche affichée à l'écran est jointe au message pour aider à comprendre. Rien d'autre n'est envoyé.</p>
     </div>

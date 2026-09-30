@@ -61,7 +61,7 @@
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
     let res;
     try { res = await fetch(`${path}?${qs}`, { headers: { Accept: 'application/json' } }); }
-    catch { throw new Error('Connexion au serveur impossible — vérifie ta connexion internet.'); }
+    catch { throw new Error('Connexion au serveur impossible, vérifie ta connexion internet.'); }
     let data = null;
     try { data = await res.json(); } catch { /* réponse non JSON */ }
     if (!res.ok) throw new Error(data?.error || `Le serveur a répondu ${res.status}.`);
@@ -298,7 +298,7 @@
     const label = { auto: 'automatique', light: 'clair', dark: 'sombre' }[theme];
     const b = $('#btn-theme');
     b.innerHTML = ICON[theme === 'auto' ? 'auto' : theme === 'dark' ? 'moon' : 'sun'];
-    b.setAttribute('aria-label', `Thème ${label} — changer`);
+    b.setAttribute('aria-label', `Thème ${label}, changer`);
     b.title = `Thème : ${label}`;
     mapTheme();
   }
@@ -311,6 +311,7 @@
     const app = $('#app');
     const results = hasResults();
     app.dataset.view = results ? 'results' : 'home';
+    app.dataset.tab = state.tab;
     app.dataset.map = mapOn ? 'on' : 'off';
     const editing = state.tab === 'search' && (!results || state.editing);
     $('#form-search').hidden = !editing;
@@ -413,7 +414,7 @@
       if (p.toggle) {
         b.setAttribute('aria-pressed', String(!!v));
         b.innerHTML = `${esc(p.label(v))}<i>${v ? '✓' : '+'}</i>`;
-        b.title = v ? 'Activé — toucher pour désactiver' : 'Désactivé — toucher pour activer';
+        b.title = v ? 'Activé, toucher pour désactiver' : 'Désactivé, toucher pour activer';
       } else {
         b.setAttribute('aria-pressed', 'false');
         b.innerHTML = `${esc(p.label(v))}<i>↻</i>`;
@@ -839,11 +840,21 @@
 
   /* ================================================================== accueil : idées */
 
-  const EXAMPLES = [['Paris', 'paris', 'Lyon', 'lyon'], ['Paris', 'paris', 'Bordeaux', 'bordeaux'], ['Lille', 'lille', 'Marseille', 'marseille'],
-    ['Paris', 'paris', 'Toulouse', 'toulouse'], ['Lyon', 'lyon', 'Montpellier', 'montpellier'], ['Paris', 'paris', 'Annecy', 'annecy']];
-  function renderIdeas() {
-    $('#ideas').innerHTML = `<h2>Idées pour demain</h2>
-      <div class="idea-list">${EXAMPLES.map(([f, , t], i) => `<button class="idea" type="button" data-ex="${i}"><b>${esc(f)} → ${esc(t)}</b><span>Voir les trains à 0 €</span></button>`).join('')}</div>
+  // idées vérifiées par le serveur : seulement des liaisons qui ont vraiment des trains à 0 € demain
+  let IDEAS = [];
+  async function renderIdeas(load = false) {
+    let list = '<p class="cal-msg">Recherche des trains à 0 € disponibles demain…</p>';
+    if (load) {
+      try {
+        const lastFrom = $('#s-from').dataset.label || $('#s-from').value;
+        const r = await api('/api/ideas', { date: clampDate(addDays(todayISO(), 1)), from: lastFrom, ...profileParams() });
+        IDEAS = r.ideas || [];
+        list = IDEAS.length
+          ? `<div class="idea-list">${IDEAS.map((x, i) => `<button class="idea" type="button" data-ex="${i}"><b>${esc(x.from_name)} → ${esc(x.to_name)}</b><span>${plural(x.n, 'train', 'trains')} à 0 € · dès ${esc(x.first)} · ${x.direct ? 'direct' : 'avec correspondance'} ${fmtDur(x.fastest)}</span></button>`).join('')}</div>`
+          : '<p class="cal-msg">Pas de grande liaison à 0 € demain : essaie le calendrier du mois ou l\'onglet Explorer.</p>';
+      } catch { list = ''; }
+    }
+    $('#ideas').innerHTML = `<h2>Idées pour demain</h2>${list}
       <div class="facts">
         <div class="fact"><b>Correspondances recomposées</b>Deux trains Max qui s'enchaînent, même quand SNCF Connect ne les propose pas ensemble.</div>
         <div class="fact"><b>TER pour finir</b>Pour les gares sans TGV : le TER depuis la gare Max la plus proche, prix estimé selon ta carte régionale.</div>
@@ -934,11 +945,16 @@
       box.innerHTML = `<div class="empty"><h2>Pas encore de favoris</h2><p>Dans l'onglet Itinéraire, remplis un départ et une arrivée puis touche l'étoile : tu pourras relancer la recherche en un geste.</p></div>`;
       return;
     }
-    box.innerHTML = favs.map((f, i) => `<div class="fav">
-        <div><b>${esc(f.from.name)} → ${esc(f.to.name)}</b><small>Relance avec les dates choisies dans Itinéraire</small></div>
-        <button class="btn primary sm" type="button" data-fav-go="${i}">${ICON.search}<span>Chercher</span></button>
-        <button class="btn ghost sm" type="button" data-fav-del="${i}" aria-label="Supprimer ce favori">${ICON.trash}</button>
-      </div>`).join('');
+    box.innerHTML = `<div class="favs-head"><h2>Mes trajets favoris</h2><p>Un geste pour voir les trains à 0 € demain, ce week-end, ou tout le mois.</p></div>`
+      + favs.map((f, i) => `<article class="fav">
+        <div class="fav-od"><b>${esc(f.from.name)}</b><i>→</i><b>${esc(f.to.name)}</b>
+          <button class="fav-del" type="button" data-fav-del="${i}" aria-label="Supprimer ${esc(f.from.name)} → ${esc(f.to.name)} des favoris">${ICON.trash}</button></div>
+        <div class="fav-actions">
+          <button class="chip" type="button" data-fav-go="${i}" data-when="tomorrow">Demain</button>
+          <button class="chip" type="button" data-fav-go="${i}" data-when="weekend">Ce week-end</button>
+          <button class="chip cal-mini" type="button" data-fav-cal="${i}">${ICON.cal}Calendrier du mois</button>
+        </div>
+      </article>`).join('');
   }
 
   /* ================================================================== signalements */
@@ -1104,8 +1120,9 @@
     $('#ideas').addEventListener('click', e => {
       const ex = e.target.closest('[data-ex]');
       if (!ex) return;
-      const [f, fl, t, tl] = EXAMPLES[Number(ex.dataset.ex)];
-      setStation($('#s-from'), f, fl); setStation($('#s-to'), t, tl);
+      const x = IDEAS[Number(ex.dataset.ex)];
+      if (!x) return;
+      setStation($('#s-from'), x.from_name, x.from); setStation($('#s-to'), x.to_name, x.to);
       setDates(...quickRange('tomorrow'));
       $('#s-start').value = ''; $('#s-end').value = '';
       setRT(false);
@@ -1120,11 +1137,21 @@
       if (b) exploreToItinerary(state.explore.destinations.find(d => d.label === b.dataset.dest));
     });
     $('#favs').addEventListener('click', e => {
-      const go = e.target.closest('[data-fav-go]'), del = e.target.closest('[data-fav-del]');
-      if (go) {
-        const f = favs[Number(go.dataset.favGo)];
+      const go = e.target.closest('[data-fav-go]'), del = e.target.closest('[data-fav-del]'), cal = e.target.closest('[data-fav-cal]');
+      if (go || cal) {
+        const f = favs[Number((go || cal).dataset.favGo ?? cal.dataset.favCal)];
         setStation($('#s-from'), f.from.name, f.from.label); setStation($('#s-to'), f.to.name, f.to.label);
-        showTab('search'); runSearch();
+        setRT(false);
+        if (go) {
+          setDates(...quickRange(go.dataset.when));
+          $('#s-start').value = ''; $('#s-end').value = '';
+          showTab('search'); runSearch();
+        } else {
+          state.editing = true;
+          showTab('search');
+          openCal();
+          $('#cal').scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
       } else if (del) {
         favs.splice(Number(del.dataset.favDel), 1); store.set('favs', favs); renderFavs(); syncFav();
       }
@@ -1172,6 +1199,8 @@
     }
     setDates(...quickRange('tomorrow'));
     $('#e-date').value = clampDate(todayISO());
+    setTimeout(() => renderIdeas(true), 0);   // après la restauration de la dernière gare de départ
+
 
     const q = new URLSearchParams(location.search);
     if (q.get('f') && q.get('t')) {
