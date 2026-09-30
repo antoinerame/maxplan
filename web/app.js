@@ -23,6 +23,9 @@
   const fmtDay = iso => { const d = noon(iso); return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; };
   const fmtShort = iso => { const d = noon(iso); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
   const fmtDayS = iso => { const d = noon(iso); return `${DAYS_S[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+  // même lieu écrit différemment (« Lyon Part Dieu » / « Lyon Part-Dieu », « Gare de X » / « X »)
+  const fold = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\bgare (de |d )?/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const samePlace = (a, b) => { const x = fold(a), y = fold(b); return x === y || x.startsWith(y + ' ') || y.startsWith(x + ' '); };
   const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
   const isMobile = () => matchMedia('(max-width: 899px)').matches;
   const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -45,6 +48,8 @@
     board: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M8 4v16"/>'),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
     cal: svg('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
+    walk: svg('<circle cx="13" cy="4.5" r="1.8"/><path d="m9 21 2.5-6 2.5 2v4M8 12l2-4 3.5-.5 2 3.5 2.5 1M11.5 15 10 9.5"/>'),
+
     msg: svg('<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>'),
   };
 
@@ -749,7 +754,9 @@
       if (i > 0) {
         const prev = it.legs[i - 1];
         const wait = absMin(l.dep, l.dep_day) - absMin(prev.arr, prev.arr_day);
-        sub = `<small>arrivée ${esc(prev.arr)} · correspondance ${fmtDur(Math.max(0, wait))}</small>`;
+        const move = !samePlace(prev.to_name, l.from_name)
+          ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${/^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? ' (métro ou RER)' : ''}</em>` : '';
+        sub = `<small>arrivée ${esc(prev.arr)} · correspondance ${fmtDur(Math.max(0, wait))}</small>${move}`;
       }
       h += `<li class="stop${i === 0 ? ' first' : ''}"><span class="s-time">${esc(l.dep)}${l.dep_day ? `<sup>+${l.dep_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(l.from_name)}${sub}</span></li>`;
       const dur = l.duration_min ?? (absMin(l.arr, l.arr_day) - absMin(l.dep, l.dep_day));
@@ -759,8 +766,14 @@
           <div class="s-sub">${fmtDur(dur)} · 1 réservation Max</div>`;
       } else {
         const p = l.price || {};
-        const steps = (l.steps || []).length > 1
-          ? `<ul class="s-steps">${l.steps.map(s => `<li><b>${esc(s.dep)}</b> ${esc(s.from)} → ${esc(s.to)} <span>(${esc(s.mode)})</span></li>`).join('')}</ul>` : '';
+        // étapes du TER / car, avec les passages à pied entre arrêts (gare → gare routière…)
+        const st = l.steps || [];
+        const walkTo = (a, b) => `<li class="walk">${ICON.walk}À pied : ${esc(a)} → ${esc(b)}</li>`;
+        const needSteps = st.length > 1 || (st[0] && !samePlace(st[0].from, l.from_name)) || (st.length && !samePlace(st[st.length - 1].to, l.to_name));
+        const steps = needSteps ? `<ul class="s-steps">${st.map((s, j) => {
+          const before = j === 0 ? (!samePlace(s.from, l.from_name) ? walkTo(l.from_name, s.from) : '') : (!samePlace(s.from, st[j - 1].to) ? walkTo(st[j - 1].to, s.from) : '');
+          return `${before}<li><b>${esc(s.dep)}</b> ${esc(s.from)} → ${esc(s.to)} <span>(${esc(s.mode)})</span></li>`;
+        }).join('')}${st.length && !samePlace(st[st.length - 1].to, l.to_name) ? walkTo(st[st.length - 1].to, l.to_name) : ''}</ul>` : '';
         body = `<div class="s-title"><b>${esc(l.mode)}</b><em class="b paid">${fmtPrice(p.price)}</em></div>
           <div class="s-sub">${fmtDur(dur)}${l.transfers ? ` · ${plural(l.transfers, 'correspondance', 'correspondances')}` : ''}</div>
           ${steps}
@@ -1351,6 +1364,15 @@
     addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => refreshView(), 200); });
   }
 
+  // « mises à jour ce matin à 8 h 23 » : heure réelle de la dernière mise à jour de l'open data
+  function updateText(u) {
+    const d = u?.last ? new Date(u.last) : null;
+    if (!d || isNaN(d)) return 'mises à jour chaque jour';
+    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+    const same = isoOf(d) === todayISO();
+    return same ? `mises à jour aujourd'hui à ${hm}` : `mises à jour le ${fmtShort(isoOf(d))} à ${hm}`;
+  }
+
   /* ================================================================== démarrage */
   async function init() {
     applyTheme();
@@ -1366,7 +1388,7 @@
     catch { $('#data-status').textContent = 'Données SNCF indisponibles pour le moment.'; return; }
     const { start, end } = state.meta.dates;
     if (start) {
-      $('#data-status').textContent = `Places Max du ${fmtShort(start)} au ${fmtShort(end)} · mises à jour chaque jour`;
+      $('#data-status').textContent = `Places Max du ${fmtShort(start)} au ${fmtShort(end)} · ${updateText(state.meta.updates)}`;
       for (const s of ['#s-fd', '#s-td', '#r-fd', '#r-td', '#e-date']) { $(s).min = start; $(s).max = end; }
     }
     setDates(...quickRange('tomorrow'));

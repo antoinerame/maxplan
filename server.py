@@ -21,6 +21,7 @@ import threading
 import time
 import traceback
 import urllib.parse
+import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as Date, timedelta
@@ -168,17 +169,27 @@ def train_mode(axe):
 def max_leg(edge, date, geo):
     o, d = edge["o"], edge["d"]
     og, dg = geo.get(o), geo.get(d)
+    # Paris : la vraie gare (Gare de Lyon, Montparnasse…) d'après l'axe du train
+    so, sd = core.city_station(o, edge), core.city_station(d, edge)
+    if so:
+        la, lo = core.PARIS_COORDS[so]
+        og = {"name": so, "lat": la, "lon": lo}
+    if sd:
+        la, lo = core.PARIS_COORDS[sd]
+        dg = {"name": sd, "lat": la, "lon": lo}
     dep = core.min_to_hhmm(edge["dep"])
     return {
         "free": True, "mode": train_mode(edge.get("axe", "")),
         "train": edge["train"], "axe": edge.get("axe", ""),
         "entity": edge.get("entity", ""),
-        "from": o, "to": d, "from_name": display_name(o, og), "to_name": display_name(d, dg),
+        "from": o, "to": d, "from_name": so or display_name(o, og), "to_name": sd or display_name(d, dg),
         "dep": dep, "arr": core.min_to_hhmm(edge["arr"]),
         "dep_day": edge["dep"] // 1440, "arr_day": edge["arr"] // 1440,
         "from_lat": og and og["lat"], "from_lon": og and og["lon"],
         "to_lat": dg and dg["lat"], "to_lon": dg and dg["lon"],
-        "book_url": booking_url(o, og, d, dg, shift(date, edge["dep"] // 1440), dep),
+        "book_url": booking_url(so or o, None if so else og, sd or d, None if sd else dg,
+                                shift(date, edge["dep"] // 1440), dep),
+
     }
 
 
@@ -772,15 +783,17 @@ def do_value(qs):
              if kind == "all" or (weekday_idx(d) >= 5) == (kind == "weekend")]
     known = set(core.all_stations())
 
-    def ter_option(edges, stations, origins, targets, dest):
+    def ter_option(date, edges, origins, targets, dest):
+
         """Les jours sans trajet 100 % Max : peut-on aller en Max jusqu'à une gare proche puis finir en
-        TER ? Prix du TER estimé sur la distance (sans appel à l'API SNCF, pour ne pas user le quota)."""
+        TER ? Le TER est vérifié dans les horaires locaux (pas d'appel à l'API SNCF) : on ne retient
+        qu'un TER qui existe vraiment ce jour-là, avec son prix estimé sur le trajet réel."""
         if not dest:
             return None
         tset = set(targets)
         o_km = min((core.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
                     for g in (navitia._cache.get(o) for o in origins) if g), default=None)
-        best = None
+        cands = []
         for s, (_, path) in core.reachable(edges, origins, max_conn=1).items():
             g = navitia._cache.get(s)
             if s in tset or not g or path_nocturnal(path):
@@ -788,11 +801,20 @@ def do_value(qs):
             km = core.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
             if km > config.TER_MAX_DISTANCE_KM or (o_km is not None and km >= o_km):
                 continue
-            price = pricing.estimate([{"mode": "TER", "dist_km": km, "lat": (g["lat"] + dest["lat"]) / 2,
-                                       "lon": (g["lon"] + dest["lon"]) / 2}], prefs)["price"]
-            if best is None or price < best[0]:
-                best = (price, display_name(s, g))
-        return best
+            est = pricing.estimate([{"mode": "TER", "dist_km": km, "lat": (g["lat"] + dest["lat"]) / 2,
+                                     "lon": (g["lon"] + dest["lon"]) / 2}], prefs)["price"]
+            cands.append((est, km, s, g, path))
+        cands.sort(key=lambda c: c[:2])
+        if not (gtfs.ready() and gtfs.covers(date) and gtfs.knows(dest.get("id", ""))):
+            return (cands[0][0], display_name(cands[0][2], cands[0][3])) if cands else None
+        for est, km, s, g, path in cands[:2]:          # les deux relais les moins chers
+            if not gtfs.knows(g["id"]):
+                continue
+            ready = path[-1]["arr"] + core.min_connection(s)
+            jr = gtfs.journey(g["id"], dest["id"], shift(date, ready // 1440), core.min_to_hhmm(ready))
+            if jr and tail_end(jr, ready) <= config.TER_MAX_TAIL_MIN:
+                return pricing.estimate(jr["sections"], prefs)["price"], display_name(s, g)
+        return None
 
     def count(date, a, b, dest):
         """(trajets 100 % Max, durée du plus rapide direct, (prix TER, gare-relais) si Max + TER possible)."""
@@ -807,7 +829,7 @@ def do_value(qs):
         paths = [p for p in core.search(edges, origins, targets, max_conn=1, max_results=80) if not path_nocturnal(p)]
         its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p} for p in paths])
         direct = [x["_arr"] - x["_dep"] for x in its if len(x["legs"]) == 1]
-        ter = None if its else ter_option(edges, stations, origins, targets, dest)
+        ter = None if its else ter_option(date, edges, origins, targets, dest)
         return len(its), min(direct, default=None), ter
 
     def direction(a, b):
@@ -849,7 +871,9 @@ def do_meta(qs):
         "version": VERSION,
         "dates": {"start": dates[0] if dates else None, "end": dates[-1] if dates else None},
         "ter_coverage": ter_coverage(),
+        "updates": history.update_stats(),
         "regions": regions.as_list(),
+
     }
 
 
@@ -1100,12 +1124,32 @@ def warmup():
         print("    Préchauffage incomplet :", e, flush=True)
 
 
+def dataset_processed():
+    """Horodatage de la dernière mise à jour du jeu de données tgvmax par la SNCF."""
+    with urllib.request.urlopen(core.API, timeout=30) as r:
+        m = json.load(r).get("metas", {}).get("default", {})
+    return m.get("data_processed") or m.get("modified")
+
+
 def history_loop():
-    """Une photo par jour des places Max (après la mise à jour matinale de l'open data, ~4 h UTC)."""
+    """Guette la mise à jour de l'open data (toutes les 15 min, une requête légère sur ses
+    métadonnées) : dès qu'elle arrive, les places du jour sont rechargées et la photo quotidienne de
+    l'historique est prise. Les heures de mise à jour sont gardées (statistiques). Filet de sécurité :
+    photo à 8 h UTC si aucune mise à jour n'a été vue."""
     while True:
         try:
             today = time.strftime("%Y-%m-%d", time.gmtime())
-            if time.gmtime().tm_hour >= 6 and history.last_run() != today:
+            fresh = False
+            try:
+                processed = dataset_processed()
+                if processed and history.record_update(processed):
+                    fresh = True
+                    _EDGES.clear()                           # nouvelles places : on les relit
+                    core._DATES = (0.0, [])
+                    print(f"    Open data Max mise à jour par la SNCF : {processed}.", flush=True)
+            except Exception:
+                pass
+            if (fresh or time.gmtime().tm_hour >= 8) and history.last_run() != today:
                 data = {}
                 for d in core.dataset_dates():
                     edges = core.fetch_oui_edges(d)
@@ -1115,7 +1159,7 @@ def history_loop():
                 print(f"    Historique : {n} places Max enregistrées ({today}).", flush=True)
         except Exception as e:
             print("    Historique : relevé impossible pour l'instant :", e, flush=True)
-        time.sleep(1800)
+        time.sleep(900)
 
 
 def main():

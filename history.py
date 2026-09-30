@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS seats(
   PRIMARY KEY(travel_date, train, o, d)) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS seats_od ON seats(o, d, travel_date);
 CREATE TABLE IF NOT EXISTS runs(day TEXT PRIMARY KEY, travel_dates INTEGER, rows INTEGER, seconds REAL);
+CREATE TABLE IF NOT EXISTS updates(processed TEXT PRIMARY KEY, detected TEXT NOT NULL);
 """
 
 
@@ -170,3 +171,31 @@ def od_trends(origins, targets):
         "gone_lead": median([g for g in gone if g > 0]),
         "still_open_share": round(sum(1 for g in gone if g <= 0) / len(gone), 2) if gone else None,
     }
+
+
+def record_update(processed):
+    """Note une mise à jour de l'open data par la SNCF (horodatage « data_processed »). True si nouvelle."""
+    with _lock, _db() as con:
+        cur = con.execute("INSERT OR IGNORE INTO updates VALUES (?, ?)",
+                          (processed, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
+        return cur.rowcount == 1
+
+
+def update_stats():
+    """Dernière mise à jour de l'open data Max et heure habituelle (UTC), d'après ce qu'on a observé."""
+    with _lock, _db() as con:
+        rows = [r[0] for r in con.execute("SELECT processed FROM updates ORDER BY processed DESC LIMIT 60")]
+    if not rows:
+        return None
+    from datetime import datetime, timezone
+    mins = []
+    for p in rows:
+        try:
+            t = datetime.fromisoformat(p).astimezone(timezone.utc)
+            mins.append(t.hour * 60 + t.minute)
+        except ValueError:
+            pass
+    mins.sort()
+    usual = mins[len(mins) // 2] if mins else None
+    return {"last": rows[0], "count": len(rows),
+            "usual_utc": f"{usual // 60:02d}:{usual % 60:02d}" if usual is not None else None}

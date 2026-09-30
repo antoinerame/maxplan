@@ -153,6 +153,37 @@ def search_stations(q, limit=8):
     return hits[:limit]
 
 
+# Paris : le jeu de données regroupe toutes les gares sous « PARIS (intramuros) ». L'axe du train
+# indique la gare réelle ; changer de gare demande de traverser Paris (métro / RER).
+PARIS_BY_AXE = {"SUD EST": "Paris Gare de Lyon", "ATLANTIQUE": "Paris Montparnasse", "NORD": "Paris Nord",
+                "EST": "Paris Est", "IC NUIT": "Paris Austerlitz", "INTERNATIONAL": "Paris Gare de Lyon"}
+PARIS_COORDS = {"Paris Gare de Lyon": (48.8443, 2.3744), "Paris Montparnasse": (48.8412, 2.3209),
+                "Paris Nord": (48.8809, 2.3553), "Paris Est": (48.8766, 2.3592),
+                "Paris Austerlitz": (48.8420, 2.3653), "Paris Bercy": (48.8390, 2.3826)}
+PARIS_CHANGE = {frozenset(("Paris Gare de Lyon", "Paris Bercy")): 25, frozenset(("Paris Nord", "Paris Est")): 25,
+                frozenset(("Paris Gare de Lyon", "Paris Austerlitz")): 40,
+                frozenset(("Paris Austerlitz", "Paris Bercy")): 40}
+PARIS_CHANGE_DEFAULT = 60        # traverser Paris en métro / RER, avec une marge
+
+
+def city_station(label, edge):
+    """Gare réelle d'un train dans une ville multi-gares (Paris seulement : ailleurs, inconnue)."""
+    if label != "PARIS (intramuros)":
+        return None
+    axe, ent = edge.get("axe", ""), edge.get("entity", "")
+    if axe.startswith("IC") and axe != "IC NUIT":
+        return "Paris Bercy" if "CLERMONT" in ent else "Paris Austerlitz"
+    return PARIS_BY_AXE.get(axe)
+
+
+def transfer_min(station, arriving, departing):
+    """Temps de correspondance mini entre deux trains Max à une gare (changement de gare compris)."""
+    a, b = city_station(station, arriving), city_station(station, departing)
+    if a and b:
+        return config.MIN_CONNECTION_MIN if a == b else PARIS_CHANGE.get(frozenset((a, b)), PARIS_CHANGE_DEFAULT)
+    return min_connection(station)
+
+
 def min_connection(station):
     return config.MIN_CONNECTION_INTRAMUROS if "(intramuros)" in station else config.MIN_CONNECTION_MIN
 
@@ -205,7 +236,7 @@ def search(edges, origins, targets, max_conn=3, max_results=40, min_dep=0, max_d
                 continue
             if path:
                 wait = e["dep"] - arrived_at
-                if wait < min_connection(station) or wait > config.MAX_LAYOVER_MIN:
+                if wait < transfer_min(station, path[-1], e) or wait > config.MAX_LAYOVER_MIN:
                     continue
             total = (e["arr"] - path[0]["dep"]) if path else (e["arr"] - e["dep"])
             if total > config.MAX_TOTAL_MIN:
@@ -246,7 +277,7 @@ def reachable(edges, origins, max_conn=1, min_dep=0, max_dep=1440):
                 continue
             if path:
                 wait = e["dep"] - arrived_at
-                if wait < min_connection(station) or wait > config.MAX_LAYOVER_MIN:
+                if wait < transfer_min(station, path[-1], e) or wait > config.MAX_LAYOVER_MIN:
                     continue
             newpath = path + [e]
             cur = best.get(e["d"])

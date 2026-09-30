@@ -619,3 +619,10 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 .tr-bar b{font:700 12px/1 var(--font-disp);color:var(--ink)}
 .tr-bar span{font-size:11px;color:var(--muted)}
 .legal-page .bar > a.bar-btn{grid-column:3;justify-self:end}
+
+/* changement de gare / passage à pied dans le détail d'un trajet */
+.move{display:flex;align-items:center;gap:6px;margin-top:3px;font-style:normal;font-size:12.5px;font-weight:700;color:var(--board-yellow)}
+.move svg,.s-steps .walk svg{width:14px;height:14px}
+.s-steps .walk{display:flex;align-items:center;gap:6px;color:var(--board-soft);font-style:italic}
+/* « Rentable ? » : fond léger derrière le nombre d'allers-retours */
+.value-row .wf:first-child{background:var(--surface-2);padding:6px 10px 5px}
