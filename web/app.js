@@ -1136,7 +1136,45 @@
     box.innerHTML = verdict + `<div class="value-list">${cards.join('')}</div>`;
   }
 
+  /* ================================================================== infos : ce qu'on observe en direct */
+  let insights = null;
+  async function renderInfos() {
+    const chart = $('#net-chart'), notes = $('#net-notes');
+    if (!insights) {
+      try { insights = await api('/api/insights'); }
+      catch (e) { chart.innerHTML = `<p class="cal-msg err">${esc(e.message)}</p>`; return; }
+    }
+    const { days, holidays = [], updates } = insights;
+    const hol = d => holidays.find(h => h.start <= d && d < h.end);
+    const max = Math.max(5, ...days.map(x => x.pct));
+    chart.innerHTML = days.map(x => {
+      const dt = noon(x.date), wd = dt.getDay(), h = hol(x.date);
+      const cls = h ? 'hol' : (wd === 0 || wd === 6) ? 'we' : '';
+      const tip = `${fmtDay(x.date)} : ${nf.format(x.pct)} % des trajets ouverts au Max (${nf.format(x.oui)} sur ${nf.format(x.total)})${h ? ` · ${h.name}` : ''}`;
+      return `<div class="nc-col ${cls}" title="${esc(tip)}"><span class="nc-val">${Math.round(x.pct)}</span><i style="height:${Math.max(2, x.pct / max * 100)}%"></i><b>${dt.getDate()}</b><em>${DAYS_S[wd][0].toUpperCase()}</em></div>`;
+    }).join('');
+    // lecture automatique : jours ordinaires vs vacances, et effet de l'éloignement
+    const avg = list => list.length ? list.reduce((a, x) => a + x.pct, 0) / list.length : null;
+    const ordinary = days.filter(x => !hol(x.date) && ![0, 6].includes(noon(x.date).getDay()));
+    const inHol = days.filter(x => hol(x.date));
+    const first = days.slice(0, 7), last = days.slice(-7);
+    const lines = [];
+    const ho = inHol.length ? hol(inHol[0].date) : null;
+    if (ho && ordinary.length) lines.push(`Pendant les <b>${esc(ho.name.charAt(0).toLowerCase() + ho.name.slice(1))}</b> (${esc(fmtShort(ho.start))} → ${esc(fmtShort(ho.end))}), <b>${nf.format(Math.round(avg(inHol)))} %</b> des trajets sont ouverts au Max, contre <b>${nf.format(Math.round(avg(ordinary)))} %</b> les jours ordinaires.`);
+    if (first.length && last.length) lines.push(`Les 7 prochains jours : <b>${nf.format(Math.round(avg(first)))} %</b> en moyenne ; dans 3 à 4 semaines : <b>${nf.format(Math.round(avg(last)))} %</b>. Des places s'ouvriront sans doute d'ici là.`);
+    const u = updates?.last ? new Date(updates.last) : null;
+    if (u && !isNaN(u)) lines.push(`Données SNCF mises à jour le ${esc(fmtDay(isoOf(u)))} à ${u.getHours()} h ${String(u.getMinutes()).padStart(2, '0')}.`);
+    notes.innerHTML = lines.map(l => `<p>${l}</p>`).join('');
+    if (u && !isNaN(u)) $('#info-update').innerHTML = `La SNCF publie les places Max une fois par jour : dernière mise à jour ${u.getHours()} h ${String(u.getMinutes()).padStart(2, '0')}${updates.count > 3 && updates.usual_utc ? `, d'habitude vers ${esc(localFromUtc(updates.usual_utc))}` : ''}. Entre deux mises à jour, des places peuvent partir : vérifie toujours sur SNCF Connect avant de compter sur un train.`;
+  }
+  function localFromUtc(hm) {
+    const [h, m] = hm.split(':').map(Number);
+    const d = new Date(); d.setUTCHours(h, m, 0, 0);
+    return `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
   /* ================================================================== signalements */
+
 
   function openFeedback() {
     $('#fb-message').value = '';
@@ -1203,8 +1241,10 @@
   function showTab(t) {
     state.tab = t;
     $$('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
-    for (const v of ['search', 'explore', 'favs', 'value']) $('#view-' + v).hidden = v !== t;
+    $(`.tab[data-tab="${t}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });   // onglet visible sur petit écran
+    for (const v of ['search', 'explore', 'favs', 'value', 'infos']) $('#view-' + v).hidden = v !== t;
     if (t === 'value') renderValue();
+    if (t === 'infos') renderInfos();
     refreshView();
     if (!isMobile()) $('#panel').scrollTop = 0;
   }

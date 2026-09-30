@@ -65,6 +65,7 @@
         <button class="tab" role="tab" type="button" data-tab="explore" aria-selected="false" aria-controls="view-explore">Explorer</button>
         <button class="tab" role="tab" type="button" data-tab="favs" aria-selected="false" aria-controls="view-favs">Favoris <span class="count" id="fav-count"></span></button>
         <button class="tab" role="tab" type="button" data-tab="value" aria-selected="false" aria-controls="view-value">Rentable ?</button>
+        <button class="tab" role="tab" type="button" data-tab="infos" aria-selected="false" aria-controls="view-infos">Infos</button>
       </nav>
 
       <div class="hero" id="hero">
@@ -202,7 +203,76 @@
           <div id="value-out" aria-live="polite"></div>
         </section>
 
+        <!-- ============ INFOS ============ -->
+        <section class="view" id="view-infos" role="tabpanel" hidden>
+          <div class="value-head">
+            <h2>Comprendre les places Max</h2>
+            <p>Pourquoi un train est à 0 € un jour et pas le lendemain ? Ce qu'on sait du fonctionnement des places Max, et ce qu'on observe en direct dans les données de la SNCF.</p>
+          </div>
+
+          <article class="info-card live">
+            <h3>En ce moment sur le réseau</h3>
+            <p class="info-sub">Part des trajets TGV INOUI et Intercités ouverts au Max, jour par jour, dans toute la France.</p>
+            <div class="net-chart" id="net-chart" aria-label="Part des trajets ouverts au Max par jour"><p class="cal-msg">Chargement…</p></div>
+            <div class="net-legend"><span><i></i>Jour ordinaire</span><span><i class="we"></i>Week-end</span><span><i class="hol"></i>Vacances scolaires</span></div>
+            <div class="net-notes" id="net-notes"></div>
+          </article>
+
+          <article class="info-card">
+            <h3>Des places réservées, en nombre limité</h3>
+            <p>Sur chaque train, la SNCF met de côté un petit nombre de places pour les abonnés Max, et ajuste ce quota selon le remplissage prévu. Quand ces places sont prises, ou pas encore ouvertes, le train apparaît fermé au Max dans les données, même s'il circule et qu'il reste des places payantes.</p>
+          </article>
+
+          <article class="info-card">
+            <h3>Pourquoi certains jours sont vides</h3>
+            <ul>
+              <li><b>Périodes de forte affluence</b> : vacances scolaires, ponts, départs du vendredi soir, retours du dimanche. Le Max y est très limité, voire absent.</li>
+              <li><b>Max Senior</b> : pas de place à 0 € le samedi ni le dimanche.</li>
+              <li><b>Travaux ou trains supprimés</b> : certains jours, une gare n'a tout simplement aucun TGV (même payant).</li>
+              <li><b>Petites gares</b> : peu de trains, donc peu de chances qu'une place Max y soit ouverte ; une gare voisine ou une correspondance fait souvent mieux.</li>
+            </ul>
+          </article>
+
+          <article class="info-card">
+            <h3>Des places qui s'ouvrent au fil des jours</h3>
+            <p>On peut réserver un train Max jusqu'à 30 jours avant le départ, mais toutes les places ne sont pas ouvertes d'un coup : les dates lointaines paraissent souvent vides, puis des places se débloquent à l'approche du départ, parfois la veille. MaxPlan enregistre chaque jour les places ouvertes pour mesurer ce phénomène : tu en vois les premiers résultats sous le calendrier du mois (« Tendances sur ce trajet »).</p>
+          </article>
+
+          <article class="info-card">
+            <h3>Une photo par jour</h3>
+            <p id="info-update">La SNCF publie les places Max une fois par jour, tôt le matin. Entre deux mises à jour, des places peuvent partir : vérifie toujours sur SNCF Connect avant de compter sur un train.</p>
+          </article>
+
+          <article class="info-card">
+            <h3>Correspondances : des billets séparés</h3>
+            <p>Quand MaxPlan enchaîne plusieurs trains, chacun se réserve à part. Si le premier a du retard, le suivant ne l'attend pas et le billet n'est pas reporté automatiquement, contrairement à un trajet vendu d'un bloc par la SNCF. Les correspondances de moins de 30 minutes sont signalées : garde de la marge.</p>
+          </article>
+
+          <article class="info-card">
+            <h3>À Paris, attention au changement de gare</h3>
+            <p>Chaque ligne a sa gare : Sud-Est à la Gare de Lyon, Atlantique à Montparnasse, Nord et Est à leurs gares, Paris–Limoges–Toulouse et les trains de nuit à Austerlitz, Paris–Clermont à Bercy. MaxPlan compte le temps de traverser Paris (25 min à 1 h selon les gares) et l'indique dans le détail du trajet.</p>
+          </article>
+
+          <article class="info-card">
+            <h3>TER et cars régionaux</h3>
+            <p>Le TER n'est pas inclus dans les abonnements Max. MaxPlan calcule le TER ou le car pour finir le trajet à partir des horaires officiels (SNCF et une quarantaine de réseaux régionaux), et en estime le prix selon ta carte de réduction régionale, à régler dans ton profil. Le prix exact est celui de SNCF Connect ou du réseau de cars.</p>
+          </article>
+
+          <article class="info-card tips">
+            <h3>Astuces pour voyager à 0 €</h3>
+            <ul>
+              <li>Réserve dès que la place apparaît : les bonnes places Max partent vite.</li>
+              <li>Sois flexible d'un jour ou de quelques heures : le <b>calendrier du mois</b> montre les meilleurs jours.</li>
+              <li>Essaie une gare voisine ou une correspondance : l'onglet <b>Explorer</b> montre tout ce qui est accessible à 0 €.</li>
+              <li>Évite les vendredis soir, les dimanches et les vacances quand tu peux.</li>
+              <li>Repasse le lendemain matin : les places se débloquent souvent à l'approche du départ.</li>
+              <li>Pense à confirmer chaque voyage Max quand la SNCF te le demande, avant le départ : sans confirmation, la réservation est annulée.</li>
+            </ul>
+          </article>
+        </section>
+
         <!-- ============ FAVORIS ============ -->
+
 
         <section class="view" id="view-favs" role="tabpanel" hidden>
           <div id="favs"></div>

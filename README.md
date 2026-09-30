@@ -42,7 +42,10 @@ dépendance externe).
 5. **Historique** (`history.py`) : chaque jour, le serveur enregistre les trains ouverts au Max
    (SQLite, ~150 Mo par an). Il alimente les tendances (meilleurs jours, heures, quand les places
    s'ouvrent) et, après deux semaines, le calcul « Rentable ? ».
-6. **Interface** (`web/`) : HTML/CSS/JS sans framework ni build, Leaflet et polices hébergés
+6. **Onglet Infos** : explique le fonctionnement des places Max, avec un graphique en direct de la part
+   de trajets ouverts au Max chaque jour (open data SNCF) et des vacances scolaires (open data Éducation
+   nationale), qui montre l'effet des vacances et des dates lointaines.
+7. **Interface** (`web/`) : HTML/CSS/JS sans framework ni build, Leaflet et polices hébergés
    localement, PWA installable. Le profil, les favoris et les trajets « Rentable ? » restent dans le
    navigateur du visiteur.
 
@@ -60,7 +63,7 @@ dépendance externe).
 | `config.py` | Réglages (surchargés par les variables d'environnement, voir `.env.example`). |
 | `web/` | Interface : `index.html`, `app.css`, `app.js`, `mentions-legales.html`, PWA, icônes. |
 
-API : `/api/search`, `/api/calendar`, `/api/trends`, `/api/value`, `/api/ideas`, `/api/explore`,
+API : `/api/search`, `/api/calendar`, `/api/trends`, `/api/insights`, `/api/value`, `/api/ideas`, `/api/explore`,
 `/api/stations`, `/api/nearest`, `/api/meta`, `POST /api/feedback`, `/healthz`.
 
 ## Contribuer

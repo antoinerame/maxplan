@@ -636,3 +636,34 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 /* rappel : places relevées une fois par jour */
 .fresh{flex-basis:100%;display:flex;align-items:flex-start;gap:8px;margin:0;padding:8px 10px;border-radius:var(--r);background:var(--surface-2);font-size:12.5px;color:var(--ink-2)}
 .fresh svg{width:15px;height:15px;margin-top:1px;flex:none;color:var(--muted)}
+
+/* ------------------------------------------------------------------ infos */
+.app[data-tab="infos"] .hero{display:none}
+#view-infos{gap:12px;padding-top:18px}
+.info-card{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-lg);box-shadow:var(--shadow-1);padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.info-card h3{margin:0;font-weight:800;font-size:16px}
+.info-card p,.info-card li{margin:0;color:var(--ink-2);font-size:14px;max-width:70ch}
+.info-card ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.info-sub{font-size:13px!important;color:var(--muted)!important}
+.net-chart{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:3px;height:170px;align-items:end;margin-top:6px}
+.nc-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px;min-width:0}
+.nc-col i{display:block;width:100%;max-width:18px;border-radius:3px 3px 0 0;background:var(--primary)}
+.nc-col.we i{background:color-mix(in srgb,var(--primary) 45%,var(--surface))}
+.nc-col.hol i{background:repeating-linear-gradient(135deg,var(--paid) 0 3px,color-mix(in srgb,var(--paid) 55%,var(--surface)) 3px 6px)}
+.nc-col .nc-val{font:700 10px/1 var(--font-disp);color:var(--muted)}
+.nc-col b{font:700 11px/1 var(--font-disp);color:var(--ink)}
+.nc-col em{font-style:normal;font-size:9.5px;color:var(--muted);line-height:1}
+.net-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);margin-top:4px}
+.net-legend span{display:inline-flex;align-items:center;gap:6px}
+.net-legend i{width:12px;height:10px;border-radius:2px;background:var(--primary)}
+.net-legend i.we{background:color-mix(in srgb,var(--primary) 45%,var(--surface))}
+.net-legend i.hol{background:repeating-linear-gradient(135deg,var(--paid) 0 3px,color-mix(in srgb,var(--paid) 55%,var(--surface)) 3px 6px)}
+.net-notes{display:flex;flex-direction:column;gap:4px;margin-top:6px;padding-top:8px;border-top:1px solid var(--line-soft)}
+.net-notes p{font-size:13.5px}
+.tips li::marker{color:var(--free)}
+/* 5 onglets : défilement horizontal sur petit écran */
+.tabs{overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:none}
+@media (max-width:420px){.tab{padding:7px 10px;font-size:13.5px}.nc-col .nc-val,.nc-col em{display:none}}
+@media (max-width:420px){.nc-col:nth-child(even) b{visibility:hidden}}
