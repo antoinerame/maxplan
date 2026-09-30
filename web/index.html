@@ -36,6 +36,7 @@
         <button class="tab" role="tab" type="button" data-tab="search" aria-selected="true" aria-controls="view-search">Itinéraire</button>
         <button class="tab" role="tab" type="button" data-tab="explore" aria-selected="false" aria-controls="view-explore">Explorer</button>
         <button class="tab" role="tab" type="button" data-tab="favs" aria-selected="false" aria-controls="view-favs">Favoris <span class="count" id="fav-count"></span></button>
+        <button class="tab" role="tab" type="button" data-tab="value" aria-selected="false" aria-controls="view-value">Rentable ?</button>
       </nav>
 
       <div class="hero" id="hero">
@@ -135,7 +136,42 @@
           <div class="results" id="explore-results" aria-live="polite"></div>
         </section>
 
+        <!-- ============ RENTABLE ? ============ -->
+        <section class="view" id="view-value" role="tabpanel" hidden>
+          <div class="value-head">
+            <h2>Max, rentable pour toi ?</h2>
+            <p>Indique tes trajets habituels : on compare ce que te coûteraient les billets avec ce que coûte l'abonnement, d'après les trains à 0 € des 30 prochains jours et les tarifs officiels de la SNCF.</p>
+          </div>
+          <form class="form" id="form-value" autocomplete="off" novalidate>
+            <div class="od">
+              <div class="od-row">
+                <label for="v-from">Départ :</label>
+                <input class="od-input" id="v-from" placeholder="Gare, ville…" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ac-v-from">
+                <ul class="ac" id="ac-v-from" role="listbox" hidden></ul>
+              </div>
+              <div class="od-row">
+                <label for="v-to">Arrivée :</label>
+                <input class="od-input" id="v-to" placeholder="Gare, ville…" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ac-v-to">
+                <ul class="ac" id="ac-v-to" role="listbox" hidden></ul>
+              </div>
+            </div>
+            <div class="when">
+              <div class="value-row">
+                <label class="wf"><span>Allers-retours par mois</span>
+                  <select id="v-n"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>6</option><option>8</option><option>12</option></select></label>
+                <div class="wf"><span>Tu voyages plutôt</span>
+                  <div class="seg" id="v-days" role="group" aria-label="Jours de voyage">
+                    <button type="button" data-v="all" aria-pressed="true">Peu importe</button><button type="button" data-v="week" aria-pressed="false">En semaine</button><button type="button" data-v="weekend" aria-pressed="false">Le week-end</button>
+                  </div></div>
+              </div>
+            </div>
+            <div class="actions"><button class="btn primary" type="submit" id="btn-value">Ajouter ce trajet</button></div>
+          </form>
+          <div id="value-out" aria-live="polite"></div>
+        </section>
+
         <!-- ============ FAVORIS ============ -->
+
         <section class="view" id="view-favs" role="tabpanel" hidden>
           <div id="favs"></div>
         </section>
@@ -200,9 +236,11 @@
       </fieldset>
       <label class="fb-field"><span>Ton message</span>
         <textarea id="fb-message" rows="5" maxlength="2000" required placeholder="Ex. : Paris → Lyon le 12 octobre, le train de 8 h 04 n'est pas à 0 € sur SNCF Connect."></textarea></label>
-      <label class="fb-field"><span>Pour te répondre <small>(facultatif) e-mail, Instagram…</small></span>
-        <input id="fb-contact" maxlength="200" autocomplete="email"></label>
+      <label class="fb-field"><span>Ton e-mail <small>(facultatif, seulement si tu veux une réponse)</small></span>
+        <input id="fb-contact" type="email" maxlength="200" autocomplete="email" placeholder="prenom@exemple.fr"></label>
       <p class="hint">La recherche affichée à l'écran est jointe au message pour aider à comprendre. Rien d'autre n'est envoyé.</p>
+      <p class="fb-known"><b>Déjà connu, pas besoin de le signaler :</b> le bouton « Voir ce train sur SNCF Connect » n'ouvre pas toujours le bon trajet, surtout dans l'appli SNCF Connect. Ça dépend de la SNCF ; il suffit de chercher le train à la main avec le numéro et l'heure affichés.</p>
+
     </div>
     <footer>
       <button class="btn ghost" type="button" data-close>Annuler</button>

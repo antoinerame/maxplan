@@ -34,12 +34,14 @@ except Exception:
     pass
 
 import config
+import fares
+import history
 import pricing
 import regions
 import tgvmax_core as core
 from navitia import navitia
 
-VERSION = "3.2"
+VERSION = "3.4"
 WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web"))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
@@ -647,6 +649,46 @@ def do_ideas(qs):
     return {"date": date, "ideas": ideas}
 
 
+def do_value(qs):
+    """« Max est-il rentable pour moi ? » : pour une liaison et son retour, la part des jours (sur les
+    30 prochains) avec au moins un train à 0 € de jour, les prix officiels des billets payants, et ce
+    que dit l'historique des places Max."""
+    src, dst = _p(qs, "from"), _p(qs, "to")
+    if not src or not dst:
+        raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
+    kind = _p(qs, "days", "all")
+    prefs = pricing.prefs_from_qs(qs)
+    dates = [d for d in core.dataset_dates()
+             if kind == "all" or (weekday_idx(d) >= 5) == (kind == "weekend")]
+    known = set(core.all_stations())
+
+    def count(date, a, b):
+        if senior_weekend(prefs, date):
+            return 0
+        try:
+            edges = edges_for(date)
+        except Exception:
+            return None
+        stations = {e["o"] for e in edges} | {e["d"] for e in edges}
+        paths = [p for p in core.search(edges, core.resolve_city(a, stations), core.resolve_city(b, stations),
+                                        max_conn=1, max_results=80) if not path_nocturnal(p)]
+        return len(drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p}
+                                   for p in paths]))
+
+    def direction(a, b):
+        counts = [c for c in DAY_POOL.map(lambda d: count(d, a, b), dates) if c is not None]
+        origins, targets = core.resolve_city(a, known), core.resolve_city(b, known)
+        try:
+            prices = fares.price_range(origins, targets)
+        except Exception:
+            prices = None
+        return {"days": len(counts), "free_days": sum(1 for c in counts if c),
+                "avg_trains": round(sum(counts) / len(counts), 1) if counts else 0,
+                "prices": prices, "history": history.od_stats(origins, targets)}
+
+    return {"from": src, "to": dst, "days_kind": kind, "out": direction(src, dst), "ret": direction(dst, src)}
+
+
 def do_meta(qs):
     dates = core.dataset_dates()
     return {
@@ -664,6 +706,7 @@ ROUTES = {
     "/api/nearest": ("nearest", do_nearest),
     "/api/calendar": ("calendar", do_calendar),
     "/api/ideas": ("calendar", do_ideas),
+    "/api/value": ("calendar", do_value),
 
     "/api/meta": (None, do_meta),
 }
@@ -849,11 +892,31 @@ def warmup():
         print("    Préchauffage incomplet :", e, flush=True)
 
 
+def history_loop():
+    """Une photo par jour des places Max (après la mise à jour matinale de l'open data, ~4 h UTC)."""
+    while True:
+        try:
+            today = time.strftime("%Y-%m-%d", time.gmtime())
+            if time.gmtime().tm_hour >= 6 and history.last_run() != today:
+                data = {}
+                for d in core.dataset_dates():
+                    edges = core.fetch_oui_edges(d)
+                    _EDGES[d] = (time.time(), edges)       # rafraîchit le cache au passage
+                    data[d] = edges
+                n = history.snapshot(data, today)
+                print(f"    Historique : {n} places Max enregistrées ({today}).", flush=True)
+        except Exception as e:
+            print("    Historique : relevé impossible pour l'instant :", e, flush=True)
+        time.sleep(1800)
+
+
 def main():
     srv = ThreadingHTTPServer((config.HOST, config.PORT), Handler)
     srv.daemon_threads = True
     threading.Thread(target=warmup, daemon=True).start()
-    print(f"\n🚄  TGV Max Planner {VERSION}  →  http://{config.HOST}:{config.PORT}", flush=True)
+    threading.Thread(target=history_loop, daemon=True).start()
+
+    print(f"\n🚄  MaxPlan {VERSION}  →  http://{config.HOST}:{config.PORT}", flush=True)
     print("    Ctrl+C pour arrêter.\n", flush=True)
     try:
         srv.serve_forever()

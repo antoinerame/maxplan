@@ -44,7 +44,15 @@ navigateur. Une recherche peut aussi se partager par lien (bouton « Partager »
   publiés par la SNCF), l'horaire TER est estimé d'après le même jour de la semaine précédente.
 - **Trajets de nuit** (train de nuit, ou nuit à attendre en gare) masqués par défaut, dépliables par
   jour ; les détours absurdes (bien plus longs que le trajet le plus rapide du jour) sont écartés.
+- **Rentable ?** : tes trajets habituels (et combien d'allers-retours par mois) → part des jours avec
+  un train à 0 € sur les 30 prochains jours, prix officiels des billets (open data « Tarifs TGV INOUI
+  et OUIGO » et « Tarifs Intercités »), et coût mensuel avec ou sans abonnement Max.
+- **Historique des places Max** : chaque jour après la mise à jour de l'open data (~6 h UTC), le
+  serveur photographie les trains ouverts au Max dans `history.sqlite` (volume de données) : une
+  ligne par train et jour de voyage, avec le premier et le dernier jour où il était ouvert
+  (~150 Mo par an). Sert aux statistiques de l'onglet « Rentable ? ».
 - **Calendrier du mois** :
+
  pour un départ et une arrivée, le nombre de trajets à 0 € sur chacun des
   30 jours ; une touche sur un jour lance la recherche.
 - **TGV INOUI et Intercités** (y compris de nuit) ouverts au Max. Le complément TER essaie plusieurs
@@ -67,13 +75,15 @@ navigateur. Une recherche peut aussi se partager par lien (bouton « Partager »
 | `server.py` | Serveur HTTP (stdlib, zéro dépendance) : API + fichiers ; caches à durée de vie, calculs TER en parallèle, limite de requêtes par IP, gzip, en-têtes de sécurité (CSP). |
 | `tgvmax_core.py` | Open data `tgvmax` + moteur de graphe (correspondances, fenêtre horaire, nuit). |
 | `navitia.py` | API SNCF/Navitia : géocodage (cache disque), autocomplétion, itinéraires TER (cache mémoire). |
+| `fares.py` | Fourchettes de prix officielles des billets TGV INOUI / Intercités (open data), pour « Rentable ? ». |
+| `history.py` | Historique quotidien des places Max (SQLite) et statistiques par liaison. |
 | `pricing.py` | Estimation des prix par tronçon selon le profil (abonnement + réductions par région). |
 | `regions.py` | Région d'un point (point-dans-polygone sur `web/geo/regions.json`). |
 | `web/` | Interface : `index.html`, `app.css`, `app.js`, polices et Leaflet hébergés localement, PWA (`manifest.webmanifest`, `sw.js`, icônes). |
 | `web/geo/` | Contours de la France et des régions (france-geojson, IGN / data.gouv.fr). |
 | `Dockerfile` / `docker-compose.yml` | Image + service, volume de cache, healthcheck. |
 
-API : `/api/meta`, `/api/search`, `/api/calendar`, `/api/explore`, `/api/stations`, `/api/nearest`, `/healthz`.
+API : `/api/meta`, `/api/search`, `/api/calendar`, `/api/ideas`, `/api/value`, `/api/explore`, `/api/stations`, `/api/nearest`, `/healthz`.
 
 
 ## Données & limites

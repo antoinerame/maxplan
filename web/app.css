@@ -543,3 +543,41 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 .legal p,.legal li{margin:0;max-width:68ch;color:var(--ink-2)}
 .legal ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 .legal a{color:var(--primary);font-weight:700}
+.book-note{margin:4px 0 0 82px;font-size:12px;line-height:1.4;color:var(--board-soft);max-width:60ch}
+.fb-known{margin:0;padding:10px 12px;border-radius:var(--r);background:var(--surface-2);font-size:13px;color:var(--ink-2)}
+@media (max-width:899px){.book-note{margin-left:0}}
+
+/* ------------------------------------------------------------------ rentable ? */
+.app[data-tab="value"] .hero{display:none}
+#view-value{gap:14px;padding-top:18px}
+.value-head h2{margin:0;font-weight:800;font-size:20px}
+.value-head p{margin:4px 0 0;color:var(--ink-2);font-size:14.5px;max-width:62ch}
+.value-row{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.4fr);gap:10px;align-items:end}
+.value-row select{border:0;background:none;padding:0;height:28px;font-weight:700;font-size:15px}
+.value-row .seg{margin-top:2px;flex-wrap:wrap}
+.value-list{display:flex;flex-direction:column;gap:10px}
+.v-sub{margin:-6px 0 0;color:var(--muted);font-size:13.5px}
+.v-chances{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.v-chance{display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:10px 12px;border-radius:var(--r);background:var(--surface-2)}
+.v-chance span{font-size:13px;color:var(--ink-2);font-weight:700}
+.v-chance b{font-size:18px;color:var(--free-ink)}
+.v-chance i{grid-column:1/-1;height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+.v-chance i em{display:block;height:100%;background:var(--free);border-radius:3px}
+.v-chance small{grid-column:1/-1;color:var(--muted);font-size:12px}
+.v-note{margin:0;font-size:13px;color:var(--ink-2)}
+.v-month{font-size:13.5px;color:var(--ink-2);padding:10px 12px;border-radius:var(--r);border:1px dashed var(--line)}
+.v-month span{display:block;font-weight:800;color:var(--ink);margin-bottom:2px}
+.v-month b{color:var(--ink)}
+.v-price{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13.5px;color:var(--ink-2)}
+.v-price span{flex-basis:100%}
+.v-price input{width:110px;height:38px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);font-weight:700}
+.verdict{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border-radius:var(--r-lg);background:var(--surface);border:2px solid var(--line);box-shadow:var(--shadow-1)}
+.verdict.good{border-color:var(--free);background:color-mix(in srgb,var(--free) 8%,var(--surface))}
+.verdict.bad{border-color:var(--paid);background:color-mix(in srgb,var(--paid) 8%,var(--surface))}
+.verdict h3{margin:0;font-weight:800;font-size:19px;text-wrap:balance}
+.verdict p{margin:0;font-size:14px;color:var(--ink-2)}
+.verdict .v-big{font-size:16px;font-weight:800;color:var(--free-ink)}
+@media (max-width:899px){
+  .tab{padding:8px 11px;font-size:14px}
+  .value-row,.v-chances{grid-template-columns:minmax(0,1fr)}
+}

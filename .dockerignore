@@ -8,3 +8,6 @@ geo_cache.json
 data/
 .claude/
 README.md
+history.sqlite*
+feedback.jsonl
+geo_cache*.json

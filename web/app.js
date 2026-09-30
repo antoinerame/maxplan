@@ -772,7 +772,8 @@
     });
     const last = it.legs[it.legs.length - 1];
     h += `<li class="stop last"><span class="s-time">${esc(last.arr)}${last.arr_day ? `<sup>+${last.arr_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(last.to_name)}<small>arrivée</small></span></li>`;
-    return h + '</ol></div>';
+    return h + `</ol><p class="book-note">Le lien SNCF Connect n'ouvre pas toujours le bon trajet (surtout dans l'appli) : si besoin, cherche le train à la main avec son numéro et son heure de départ.</p></div>`;
+
   }
 
   function select(key, scroll = true) {
@@ -957,7 +958,101 @@
       </article>`).join('');
   }
 
+  /* ================================================================== rentabilité */
+  // Prix des abonnements et de la carte Avantage (à mettre à jour si la SNCF les change).
+  const SUB_PRICE = { jeune: 79, senior: 79 };
+  const AVANTAGE_YEAR = 49;
+  let vTrips = store.get('valueTrips', []);
+  const vCache = {};
+  const vKey = t => `${t.from.label || t.from.name}|${t.to.label || t.to.name}|${t.days}|${profile.sub}`;
+  const eur = v => `${nf.format(Math.round(v))} €`;
+  const pct = v => `${Math.round(v * 100)} %`;
+  const DAYS_TXT = { all: '', week: ' en semaine', weekend: ' le week-end' };
+
+  function loadValue(t) {
+    const k = vKey(t);
+    if (!vCache[k]) {
+      vCache[k] = api('/api/value', { from: t.from.label || t.from.name, to: t.to.label || t.to.name, days: t.days, ...profileParams() })
+        .catch(e => { delete vCache[k]; return { error: e.message }; });
+    }
+    return vCache[k];
+  }
+  function addValueTrip() {
+    const a = $('#v-from'), b = $('#v-to');
+    if (!a.value.trim() || !b.value.trim()) { toast("Indique un départ et une arrivée."); (a.value.trim() ? b : a).focus(); return; }
+    vTrips.push({
+      from: { name: a.value.trim(), label: a.dataset.label || '' }, to: { name: b.value.trim(), label: b.dataset.label || '' },
+      n: Number($('#v-n').value) || 2, days: $('#v-days [aria-pressed="true"]')?.dataset.v || 'all', price: null,
+    });
+    store.set('valueTrips', vTrips);
+    setStation(a, '', ''); setStation(b, '', '');
+    renderValue();
+  }
+
+  async function renderValue() {
+    const box = $('#value-out');
+    if (!vTrips.length) {
+      box.innerHTML = `<div class="empty"><h2>Ajoute un premier trajet</h2><p>Par exemple chez toi ↔ tes études, ou chez tes parents, avec le nombre d'allers-retours que tu fais par mois.</p></div>`;
+      return;
+    }
+    const head = t => `<div class="fav-od"><b>${esc(t.from.name)}</b><i>⇄</i><b>${esc(t.to.name)}</b>
+        <button class="fav-del" type="button" data-v-del="${vTrips.indexOf(t)}" aria-label="Retirer ce trajet">${ICON.trash}</button></div>
+      <p class="v-sub">${plural(t.n, 'aller-retour', 'allers-retours')} par mois${DAYS_TXT[t.days]}</p>`;
+    box.innerHTML = `<div class="value-list">${vTrips.map(t => `<article class="fav vcard">${head(t)}<p class="cal-msg">Calcul en cours…</p></article>`).join('')}</div>`;
+    const res = await Promise.all(vTrips.map(loadValue));
+
+    const maxPrice = SUB_PRICE[profile.sub] || SUB_PRICE.jeune;
+    let totNormal = 0, totAv = 0, totMax = 0, missing = 0;
+    const cards = vTrips.map((t, i) => {
+      const r = res[i];
+      if (r.error) return `<article class="fav vcard">${head(t)}<p class="cal-msg err">${esc(r.error)}</p></article>`;
+      const legs = [r.out, r.ret];
+      const p = legs.map(l => (l.days ? l.free_days / l.days : 0));
+      const manual = t.price ? { normal: { typical: t.price, min: t.price, max: t.price }, avantage: { typical: t.price, min: t.price, max: t.price } } : null;
+      const price = legs.map(l => l.prices || manual);
+      let body = `<div class="v-chances">${legs.map((l, k) => `<div class="v-chance">
+          <span>${k ? 'Retour' : 'Aller'} à 0 €</span><b>${l.days ? pct(p[k]) : '?'}</b>
+          <i><em style="width:${Math.round(p[k] * 100)}%"></em></i>
+          <small>${l.free_days} jours sur ${l.days}${DAYS_TXT[t.days]} · ${nf.format(l.avg_trains)} train${l.avg_trains >= 2 ? 's' : ''}/jour en moyenne</small></div>`).join('')}</div>`;
+      const hist = r.out.history;
+      if (hist && hist.days >= 7) body += `<p class="v-note">Historique depuis le ${esc(fmtShort(hist.since))} : ${hist.days_with_free} jours sur ${hist.days} avec des trains directs à 0 €, ${nf.format(hist.avg_trains)} par jour en moyenne.</p>`;
+      if (price.some(x => !x)) {
+        missing++;
+        body += `<label class="v-price"><span>Pas de tarif officiel pour ce trajet (correspondance ou petite gare). Combien paies-tu d'habitude un aller simple ?</span>
+          <input type="number" min="1" step="0.5" inputmode="decimal" data-v-price="${i}" placeholder="ex. 45" value="${t.price || ''}"> €</label>`;
+        return `<article class="fav vcard">${head(t)}${body}</article>`;
+      }
+      const n = t.n;
+      const normal = n * (price[0].normal.typical + price[1].normal.typical);
+      const avantage = n * (price[0].avantage.typical + price[1].avantage.typical);
+      const withMax = n * ((1 - p[0]) * price[0].avantage.typical + (1 - p[1]) * price[1].avantage.typical);
+      totNormal += normal; totAv += avantage; totMax += withMax;
+      const pr = price[0];
+      body += `<p class="v-note">Billet payant, aller simple en 2de classe : ${t.price ? `${eur(t.price)} (ton prix)` : `de ${eur(pr.normal.min)} à ${eur(pr.normal.max)} plein tarif, de ${eur(pr.avantage.min)} à ${eur(pr.avantage.max)} avec carte Avantage ou Max`}.</p>
+        <div class="v-month"><span>Par mois</span><b>≈ ${eur(normal)}</b> plein tarif · <b>≈ ${eur(avantage)}</b> avec carte Avantage · <b>≈ ${eur(withMax)}</b> de billets avec Max (les jours sans place à 0 €)</div>`;
+      return `<article class="fav vcard">${head(t)}${body}</article>`;
+    });
+
+    let verdict = '';
+    if (vTrips.length > missing) {
+      const withMax = maxPrice + totMax;
+      const noMax = Math.min(totNormal, totAv + AVANTAGE_YEAR / 12);
+      const diff = noMax - withMax;
+      const sub = profile.sub === 'senior' ? 'Max Senior' : 'Max Jeune';
+      const title = diff > 5 ? `${sub} te fait économiser ≈ ${eur(diff)} par mois` : diff < -5 ? `${sub} te coûterait ≈ ${eur(-diff)} de plus par mois` : `${sub} ou pas, ça revient à peu près au même`;
+      verdict = `<div class="verdict ${diff > 5 ? 'good' : diff < -5 ? 'bad' : ''}">
+        <h3>${title}</h3>
+        ${diff > 5 ? `<p class="v-big">soit ≈ ${eur(diff * 12)} par an</p>` : ''}
+        <p>Avec ${sub} : ${eur(maxPrice)} d'abonnement + ≈ ${eur(totMax)} de billets les jours sans place à 0 € = <b>≈ ${eur(withMax)} par mois</b>.</p>
+        <p>Sans abonnement : <b>≈ ${eur(noMax)} par mois</b> ${noMax === totNormal ? 'au plein tarif' : `avec une carte Avantage (${AVANTAGE_YEAR} €/an comprise)`}.</p>
+        <p class="v-note">Estimation : prix « typique » = milieu de la fourchette officielle SNCF ; on suppose que tu peux prendre n'importe quel train de la journée${missing ? ` ; ${plural(missing, 'trajet sans prix n\'est pas compté', 'trajets sans prix ne sont pas comptés')}` : ''}. Les places Max partent vite : réserve dès l'ouverture, jusqu'à 30 jours avant.</p>
+      </div>`;
+    }
+    box.innerHTML = verdict + `<div class="value-list">${cards.join('')}</div>`;
+  }
+
   /* ================================================================== signalements */
+
   function openFeedback() {
     $('#fb-message').value = '';
     $('#dlg-feedback').showModal();
@@ -1023,7 +1118,8 @@
   function showTab(t) {
     state.tab = t;
     $$('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
-    for (const v of ['search', 'explore', 'favs']) $('#view-' + v).hidden = v !== t;
+    for (const v of ['search', 'explore', 'favs', 'value']) $('#view-' + v).hidden = v !== t;
+    if (t === 'value') renderValue();
     refreshView();
     if (!isMobile()) $('#panel').scrollTop = 0;
   }
@@ -1051,6 +1147,25 @@
     attachAC($('#s-from'), 'origin');
     attachAC($('#s-to'), 'dest');
     attachAC($('#e-from'), 'origin');
+    attachAC($('#v-from'), 'origin');
+    attachAC($('#v-to'), 'origin');
+    $('#v-days').addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (b) $$('#v-days button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    });
+    $('#form-value').addEventListener('submit', e => { e.preventDefault(); addValueTrip(); });
+    $('#value-out').addEventListener('click', e => {
+      const del = e.target.closest('[data-v-del]');
+      if (del) { vTrips.splice(Number(del.dataset.vDel), 1); store.set('valueTrips', vTrips); renderValue(); }
+    });
+    $('#value-out').addEventListener('change', e => {
+      const inp = e.target.closest('[data-v-price]');
+      if (!inp) return;
+      const v = Number(String(inp.value).replace(',', '.'));
+      vTrips[Number(inp.dataset.vPrice)].price = v > 0 ? v : null;
+      store.set('valueTrips', vTrips);
+      renderValue();
+    });
 
     $$('.tab').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
     $('.tabs').addEventListener('keydown', e => {
