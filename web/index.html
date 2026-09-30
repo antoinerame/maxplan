@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TGV Max Planner</title>
+<title>MaxPlan</title>
 <meta name="description" content="Trouve les TGV Max et Intercités à 0 €, y compris avec correspondances et compléments TER, en aller simple ou aller-retour.">
 <meta name="theme-color" content="#0C131F">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="TGV Max">
-<meta property="og:title" content="TGV Max Planner">
+<meta name="apple-mobile-web-app-title" content="MaxPlan">
+<meta property="og:title" content="MaxPlan">
 <meta property="og:description" content="Les trains Max à 0 €, correspondances et compléments TER compris.">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -19,9 +19,9 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<div class="app" id="app" data-view="home" data-map="on">
+<div class="app" id="app" data-view="home" data-map="off">
   <header class="bar">
-    <a class="brand" href="/" aria-label="TGV Max Planner — accueil"><span class="brand-tag">0 €</span><span class="brand-name">TGV Max <em>Planner</em></span></a>
+    <a class="brand" href="/" aria-label="MaxPlan — accueil"><span class="brand-tag">0 €</span><span class="brand-name">Max<em>Plan</em></span></a>
     <span class="bar-status" id="data-status">Chargement des données SNCF…</span>
     <div class="bar-actions">
       <button class="bar-btn" id="btn-profile" type="button" aria-label="Mon profil : abonnement et réductions TER"></button>
@@ -34,6 +34,7 @@
       <div class="hero" id="hero">
         <h1>Tes trains à 0 €, <span>correspondances et TER compris</span></h1>
         <p>Tous les TGV INOUI et Intercités ouverts au Max Jeune et au Max Senior, même quand il faut changer de train, et le TER pour finir le trajet.</p>
+        <p class="hero-note">Site non officiel, indépendant de la SNCF.</p>
       </div>
 
       <nav class="tabs" role="tablist" aria-label="Modes">
@@ -78,7 +79,9 @@
                 <button class="chip" type="button" data-quick="tomorrow">Demain</button>
                 <button class="chip" type="button" data-quick="weekend">Ce week-end</button>
                 <button class="chip" type="button" data-quick="week">7 jours</button>
+                <button class="chip cal-chip" type="button" id="btn-cal" aria-expanded="false">Calendrier du mois</button>
               </div>
+              <div class="cal" id="cal" hidden></div>
             </div>
 
             <div class="when" id="when-ret" hidden>
@@ -95,7 +98,6 @@
 
             <div class="filters" role="group" aria-label="Options de recherche">
               <span class="filters-lbl">Filtrer par :</span>
-              <button class="pill" type="button" data-pill="maxconn"></button>
               <button class="pill" type="button" data-pill="ter"></button>
               <button class="pill" type="button" data-pill="ter_transfers"></button>
               <button class="pill" type="button" data-pill="nights"></button>
@@ -151,7 +153,7 @@
     </main>
   </div>
 
-  <footer class="foot">Site non officiel, sans lien avec SNCF Voyageurs. Places Max d'après l'open data SNCF « tgvmax » (licence ODbL, mise à jour 1×/jour : à reconfirmer), horaires TER via l'API SNCF, prix TER estimés. Réservation sur SNCF Connect.</footer>
+  <footer class="foot">Site non officiel, sans lien avec la SNCF. Contient des informations de la base « Disponibilité à 30 jours de places MAX JEUNE et MAX SENIOR » (SNCF Voyageurs), mise à disposition sous licence ODbL ; horaires TER via l'API SNCF ; prix TER estimés. · <a href="/mentions-legales.html">Mentions légales et sources</a></footer>
 </div>
 
 <dialog class="dialog" id="dlg-profile" aria-labelledby="dlg-title">

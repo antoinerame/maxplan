@@ -21,13 +21,14 @@ SUBSCRIPTIONS = ("jeune", "senior", "none")
 def normal_fare(km):
     """Tarif normal TER (plein tarif 2de classe) estimé pour un billet de `km` km.
     Forme « a + b × distance » des barèmes TER, dégressive avec la distance ; calée sur des prix
-    publiés (Lyon–Saint-Étienne, ~50 km à vol d'oiseau : 13,80 € plein tarif en 2025)."""
+    publiés (Saint-Étienne–Lyon, ~50 km à vol d'oiseau : 14,20 € plein tarif sur SNCF Connect en 2026,
+    soit 7,10 € avec une carte −50 %)."""
     km = max(0.0, km)
-    fare = 2.4 + 0.228 * min(km, 64)
+    fare = 2.4 + 0.236 * min(km, 64)
     if km > 64:
-        fare += 0.20 * (min(km, 150) - 64)
+        fare += 0.206 * (min(km, 150) - 64)
     if km > 150:
-        fare += 0.165 * (km - 150)
+        fare += 0.17 * (km - 150)
     return max(MIN_FARE, fare)
 
 

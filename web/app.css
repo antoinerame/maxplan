@@ -35,7 +35,7 @@
   --r:10px; --r-lg:14px;
   --font-body:"Nunito Sans","Avenir Next","Avenir","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
   --font-disp:"Barlow Semi Condensed","Arial Narrow","Roboto Condensed",system-ui,sans-serif;
-  --panel-w:520px;
+  --panel-w:clamp(520px,46vw,760px);
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
@@ -109,6 +109,7 @@ svg{flex:none}
 .hero h1{margin:0 auto;max-width:22ch;font:800 clamp(26px,4.2vw,36px)/1.15 var(--font-body);letter-spacing:-.02em;text-wrap:balance}
 .hero h1 span{color:var(--primary)}
 .hero p{margin:12px auto 0;max-width:58ch;color:var(--ink-2);font-size:15.5px;text-wrap:pretty}
+.hero .hero-note{margin-top:6px;font-size:13px;color:var(--muted)}
 
 .tabs{display:flex;gap:4px;width:fit-content;max-width:100%;margin:0 auto 14px;padding:4px;background:var(--surface);border:1px solid var(--line-soft);border-radius:999px;box-shadow:var(--shadow-1)}
 .tab{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:8px 16px;border-radius:999px;font-weight:700;font-size:14.5px;color:var(--ink-2)}
@@ -245,7 +246,9 @@ svg{flex:none}
 .trip:nth-child(2n){background:var(--board-alt)}
 .trip-hit{display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:12px;align-items:start;width:100%;padding:12px 16px;background:none;border:0;text-align:left;color:var(--board-text)}
 .trip-hit:hover{background:rgba(255,255,255,.07)}
-.trip.is-sel>.trip-hit{background:var(--board-sel);box-shadow:inset 0 0 0 2px var(--board-yellow)}
+/* trajet ouvert : seul le cadre jaune le signale, le fond de la bande ne change pas */
+.trip.is-sel{box-shadow:inset 0 0 0 2px var(--board-yellow)}
+.trip.is-sel>.trip-hit,.trip.is-sel>.trip-hit:hover{background:none}
 .t-times{display:flex;flex-direction:column;gap:4px;font:700 21px/1 var(--font-disp);font-variant-numeric:tabular-nums;color:var(--board-yellow)}
 .t-times span{font-size:15.5px;font-weight:500;color:var(--board-soft)}
 sup{font-size:.6em;margin-left:2px;font-weight:700;vertical-align:.55em;line-height:0;color:var(--board-yellow)}
@@ -323,6 +326,34 @@ sup{font-size:.6em;margin-left:2px;font-weight:700;vertical-align:.55em;line-hei
 .fav small{color:var(--muted)}
 
 .foot{padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));font-size:11.5px;line-height:1.45;color:var(--muted);text-align:center}
+.foot a{color:var(--ink-2);font-weight:700}
+
+/* bouton « afficher plus de résultats » en bas du tableau */
+.more{display:flex;flex-direction:column;align-items:center;gap:2px;margin:14px 16px 18px;padding:12px 16px;border:1.5px dashed var(--line);border-radius:var(--r);background:var(--surface);color:var(--primary);font-weight:800;font-size:14.5px}
+.more:hover{border-color:var(--primary)}
+.more small{font-weight:600;font-size:12.5px;color:var(--muted)}
+
+/* calendrier du mois */
+.cal-chip{border-color:var(--primary);color:var(--primary)}
+.cal-chip[aria-expanded="true"]{background:var(--primary-soft)}
+.cal{display:flex;flex-direction:column;gap:8px;padding-top:4px;border-top:1px solid var(--line-soft)}
+.cal-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 10px;padding-top:8px}
+.cal-head small{color:var(--muted);font-size:12.5px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cal-wd{font-size:11.5px;font-weight:700;color:var(--muted);text-align:center;padding-bottom:2px}
+.cal-day{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px 5px;border:1px solid var(--line-soft);border-radius:8px;background:var(--surface-2);color:var(--muted);min-width:0}
+.cal-day b{font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums}
+.cal-day span{font:700 12px/1 var(--font-disp);font-variant-numeric:tabular-nums}
+.cal-day em{position:absolute;top:-8px;left:4px;font-style:normal;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--primary);background:var(--surface);padding:0 3px;border-radius:3px}
+.cal-day.l1{background:var(--free-soft);color:var(--free-ink)}
+.cal-day.l2{background:color-mix(in srgb,var(--free) 45%,var(--surface));color:var(--free-ink)}
+.cal-day.l3{background:var(--free);color:var(--on-free)}
+.cal-day.l3 b{color:var(--on-free)}
+.cal-day.no-ter{background-image:repeating-linear-gradient(135deg,transparent 0 5px,rgba(12,19,31,.07) 5px 7px)}
+.cal-day:hover{border-color:var(--primary)}
+.cal-day.is-sel{outline:2px solid var(--primary);outline-offset:1px}
+.cal-msg{margin:0;font-size:12.5px;color:var(--muted)}
+.cal-msg.err{color:var(--danger)}
 
 /* ------------------------------------------------------------------ carte */
 .map-wrap{position:relative;min-width:0}
@@ -428,6 +459,9 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
   .app[data-view="results"] .form{padding:0 12px 14px}
   .app[data-view="results"] .tabs{margin:10px auto}
   .bar-status{display:none}
+  .search-sum #btn-sum-cal span{display:none}
+  .search-sum #btn-sum-cal{width:36px;padding:0}
+
   .bar{justify-content:space-between}
   .hero{padding:26px 0 16px}
   .legend{left:8px;right:auto;bottom:8px;flex-direction:row;flex-wrap:wrap;gap:4px 10px;padding:5px 9px;font-size:11px}
@@ -448,3 +482,14 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }
+
+/* ------------------------------------------------------------------ page mentions légales */
+.legal-page .bar a.bar-btn{text-decoration:none}
+.legal{width:100%;max-width:760px;margin:0 auto;padding:28px 16px 48px;display:flex;flex-direction:column;gap:22px}
+.legal h1{margin:0;font:800 clamp(26px,4vw,34px)/1.15 var(--font-body);letter-spacing:-.02em;text-wrap:balance}
+.legal-lead{margin:0;padding:14px 16px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line-soft);font-size:15.5px}
+.legal section{display:flex;flex-direction:column;gap:8px}
+.legal h2{margin:0;font-weight:800;font-size:18px}
+.legal p,.legal li{margin:0;max-width:68ch;color:var(--ink-2)}
+.legal ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.legal a{color:var(--primary);font-weight:700}

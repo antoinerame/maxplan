@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mentions légales et sources — MaxPlan</title>
+<meta name="description" content="Éditeur, hébergement, sources des données, licences et données personnelles du site MaxPlan.">
+<meta name="theme-color" content="#0C131F">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="app legal-page">
+  <header class="bar">
+    <a class="brand" href="/" aria-label="MaxPlan — accueil"><span class="brand-tag">0 €</span><span class="brand-name">Max<em>Plan</em></span></a>
+    <span class="bar-status"></span>
+    <a class="bar-btn" href="/">Retour à la recherche</a>
+  </header>
+
+  <main class="legal">
+    <h1>Mentions légales et sources</h1>
+    <p class="legal-lead">MaxPlan est un <strong>site personnel, gratuit et non officiel</strong>. Il n'est ni édité, ni soutenu, ni affilié à la SNCF, à SNCF Voyageurs ou à SNCF Connect.</p>
+
+    <section>
+      <h2>Éditeur</h2>
+      <p>Site édité à titre non professionnel par un particulier qui a choisi de rester anonyme, comme le permet l'article 6-III-2 de la loi n° 2004-575 du 21 juin 2004 pour la confiance dans l'économie numérique (LCEN).</p>
+      <p><strong>Contact</strong> : en ouvrant un ticket sur la page du projet, <a href="https://github.com/antoinerame/tgvmax/issues" rel="noopener">github.com/antoinerame/tgvmax/issues</a>.</p>
+    </section>
+
+    <section>
+      <h2>Hébergement</h2>
+      <p>Le site est hébergé sur un serveur personnel de l'éditeur, situé en France.</p>
+    </section>
+
+    <section>
+      <h2>Ce que fait le site, et ses limites</h2>
+      <ul>
+        <li>Il cherche les trains ouverts à 0 € aux abonnés Max Jeune et Max Senior, y compris en enchaînant plusieurs trains, et propose un complément en TER.</li>
+        <li>Les disponibilités proviennent d'un jeu de données <strong>mis à jour une fois par jour</strong> : une place affichée peut être partie entre-temps. Vérifie toujours sur SNCF Connect.</li>
+        <li>Les <strong>prix TER sont des estimations</strong> (tarif normal estimé selon la distance, réductions déclarées dans ton profil). Le prix réel est celui de SNCF Connect.</li>
+        <li>Le site ne vend rien et ne réserve rien : les liens ouvrent la recherche correspondante sur SNCF Connect.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Sources des données</h2>
+      <ul>
+        <li><strong>Places à 0 €</strong> : contient des informations de la base <a href="https://ressources.data.sncf.com/explore/dataset/tgvmax/" rel="noopener">« Disponibilité à 30 jours de places MAX JEUNE et MAX SENIOR »</a> (SNCF Voyageurs – SNCF Open Data), mise à disposition dans les conditions de la <a href="https://opendatacommons.org/licenses/odbl/" rel="noopener">licence ODbL</a> (Open Database License).</li>
+        <li><strong>Horaires TER et recherche de gares</strong> : <a href="https://numerique.sncf.com/startup/api/" rel="noopener">API SNCF</a> (technologie Navitia, Hove). Les données de réseau piéton proviennent d'OpenStreetMap, © les contributeurs OpenStreetMap (licence ODbL).</li>
+        <li><strong>Fond de carte</strong> : relief « World Terrain Base », © Esri, USGS, NOAA.</li>
+        <li><strong>Contours de la France et des régions</strong> : projet <a href="https://github.com/gregoiredavid/france-geojson" rel="noopener">france-geojson</a>, d'après les données IGN et INSEE (Licence Ouverte).</li>
+        <li><strong>Logiciels</strong> : <a href="https://leafletjs.com/" rel="noopener">Leaflet</a> (licence BSD-2) ; polices Nunito Sans et Barlow Semi Condensed (SIL Open Font License).</li>
+      </ul>
+      <p>Le site ne republie pas les bases de données : il les interroge pour afficher des résultats de recherche.</p>
+    </section>
+
+    <section>
+      <h2>Marques</h2>
+      <p>SNCF, SNCF Connect, TGV, TGV INOUI, INTERCITÉS, OUIGO, TER, MAX JEUNE et MAX SENIOR sont des marques de leurs titulaires (notamment SNCF et SNCF Voyageurs). Elles sont citées uniquement pour décrire les trains et abonnements concernés. La couleur des résultats s'inspire de la signalétique des écrans de départ en gare ; aucun logo SNCF n'est utilisé.</p>
+    </section>
+
+    <section>
+      <h2>Données personnelles et cookies</h2>
+      <ul>
+        <li><strong>Aucun compte, aucun cookie, aucune mesure d'audience, aucune publicité.</strong></li>
+        <li>Ton profil (abonnement, réductions TER), tes favoris et tes dernières recherches sont enregistrés <strong>uniquement dans ton navigateur</strong> (stockage local). Tu peux les effacer en vidant les données du site dans ton navigateur.</li>
+        <li>Le bouton « gare la plus proche » demande ta position à ton navigateur, avec ton accord ; elle est arrondie à environ 1 km, sert seulement à trouver la gare et n'est pas conservée.</li>
+        <li>Pour éviter les abus, le serveur garde en mémoire l'adresse IP des visiteurs pendant une minute (limite du nombre de recherches). Le site ne tient pas de journal des recherches.</li>
+        <li>Les gares et dates recherchées sont transmises à l'API SNCF pour calculer les trajets TER, sans aucune donnée qui t'identifie.</li>
+        <li>Ton navigateur charge le fond de carte depuis les serveurs d'Esri (server.arcgisonline.com), qui voient donc ton adresse IP, comme pour tout site affichant une carte.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Code source</h2>
+      <p>Le code du site est public : <a href="https://github.com/antoinerame/tgvmax" rel="noopener">github.com/antoinerame/tgvmax</a>.</p>
+    </section>
+  </main>
+</div>
+</body>
+</html>

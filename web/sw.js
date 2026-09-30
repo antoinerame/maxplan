@@ -1,8 +1,8 @@
 /* Service worker : l'interface s'ouvre instantanément et fonctionne même avec un réseau faible.
    Les données (API) ne sont jamais mises en cache : elles viennent toujours du serveur. */
-const VERSION = 'tmp-3.0.0';
+const VERSION = 'maxplan-3.1.0';
 const SHELL = ['/', '/app.css', '/app.js', '/vendor/leaflet.js', '/vendor/leaflet.css',
-  '/geo/france.json', '/geo/regions.json', '/icon.svg', '/manifest.webmanifest',
+  '/geo/france.json', '/geo/regions.json', '/icon.svg', '/manifest.webmanifest', '/mentions-legales.html',
   '/fonts/nunitosans-var.woff2', '/fonts/barlow-500.woff2',
   '/fonts/barlow-600.woff2', '/fonts/barlow-700.woff2'];
 

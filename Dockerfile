@@ -1,4 +1,4 @@
-# TGV Max Planner — image du dashboard (Python stdlib, zéro dépendance externe)
+# MaxPlan — image du dashboard (Python stdlib, zéro dépendance externe)
 FROM python:3.12-slim
 
 # Réglages par défaut (surchargeables via docker-compose / -e)

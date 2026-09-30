@@ -1,6 +1,6 @@
-# TGV Max Planner
+# MaxPlan
 
-Trouve les **TGV Max à 0 €** (abonnements Max Jeune et Max Senior), y compris en **recomposant
+Trouve les **trains à 0 €** des abonnements Max Jeune et Max Senior (TGV INOUI et Intercités), y compris en **recomposant
 des correspondances** et en **complétant en TER** jusqu'aux gares sans TGV Max — sur une carte de
 France lisible, sur ordinateur comme sur téléphone.
 
@@ -28,17 +28,21 @@ navigateur. Une recherche peut aussi se partager par lien (bouton « Partager »
 
 - **Itinéraire** : départ → arrivée (autocomplétion, « gare la plus proche de moi »), plage de dates
   avec heures facultatives (« du jeudi 18 h au vendredi 15 h »), **aller-retour** (« Ajouter le
-  retour »), dates rapides, correspondances Max et TER réglables, trajets de nuit masqués par défaut.
-  Résultats façon tableau des départs en gare, triables (départ, durée, prix), filtre « 100 %
-  gratuits », détail en plan de ligne, lien SNCF Connect qui ouvre le bon jour à la bonne heure.
-  La carte n'apparaît qu'avec des résultats, et peut être masquée pour ne garder que le tableau.
+  retour »), dates rapides, complément TER activé par défaut, trajets de nuit masqués par défaut.
+  Jusqu'à 3 changements cherchés automatiquement : les trajets simples (0 ou 1 changement) sont
+  montrés d'abord, les autres derrière « Afficher plus de résultats ». Résultats façon tableau des
+  départs en gare, triables (départ, durée, prix), filtre « 100 % gratuits », détail en plan de
+  ligne, lien SNCF Connect qui ouvre le bon jour à la bonne heure. Carte masquée par défaut
+  (bouton « Voir la carte »).
+- **Calendrier du mois** : pour un départ et une arrivée, le nombre de trajets à 0 € sur chacun des
+  30 jours ; une touche sur un jour lance la recherche.
 - **TGV INOUI et Intercités** (y compris de nuit) ouverts au Max. Le complément TER essaie plusieurs
   arrivées Max par gare-relais (ex. Paris → Lyon en Max puis TER vers Saint-Étienne, à différentes
   heures), écarte les détours et les options moins bonnes qu'un trajet gratuit.
 - **Explorer** : toutes les gares atteignables à 0 € depuis une gare un jour donné ; une touche sur
   une gare ou une ligne ouvre la recherche d'itinéraire.
-- **Favoris**, **thème clair/sombre/auto**, **mobile** (carte plein écran + panneau coulissant),
-  **application installable** (PWA).
+- **Favoris**, **thème clair/sombre/auto**, **mobile**, **application installable** (PWA), page
+  **Mentions légales et sources** (`/mentions-legales.html`).
 - **Prix TER estimés** : tarif normal estimé sur la distance (barème dégressif, calé sur des prix
   publiés), puis chaque tronçon reçoit la réduction déclarée pour *sa* région (détection
   géographique sur les contours officiels), appliquée au tarif normal et arrondie au décime
@@ -58,7 +62,8 @@ navigateur. Une recherche peut aussi se partager par lien (bouton « Partager »
 | `web/geo/` | Contours de la France et des régions (france-geojson, IGN / data.gouv.fr). |
 | `Dockerfile` / `docker-compose.yml` | Image + service, volume de cache, healthcheck. |
 
-API : `/api/meta`, `/api/search`, `/api/explore`, `/api/stations`, `/api/nearest`, `/healthz`.
+API : `/api/meta`, `/api/search`, `/api/calendar`, `/api/explore`, `/api/stations`, `/api/nearest`, `/healthz`.
+
 
 ## Données & limites
 

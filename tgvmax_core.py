@@ -164,19 +164,38 @@ def night_overlap(start, end):
     return False
 
 
-def search(edges, origins, targets, max_conn=2, max_results=40, min_dep=0, max_dep=1440):
+def _reach_levels(edges, targets, k):
+    """levels[i] = gares d'où l'on peut atteindre `targets` en au plus i trains (sans tenir compte
+    des horaires). Sert à élaguer la recherche : inutile de suivre un train vers une gare d'où la
+    destination est hors de portée avec les correspondances restantes."""
+    rev = {}
+    for e in edges:
+        rev.setdefault(e["d"], set()).add(e["o"])
+    levels = [set(targets)]
+    for _ in range(k):
+        cur = levels[-1]
+        nxt = set(cur)
+        for s in cur:
+            nxt |= rev.get(s, set())
+        levels.append(nxt)
+    return levels
+
+
+def search(edges, origins, targets, max_conn=3, max_results=40, min_dep=0, max_dep=1440):
     """DFS horodaté O -> targets, <= max_conn correspondances, sans repasser par une gare."""
     by_origin = {}
     for e in edges:
         by_origin.setdefault(e["o"], []).append(e)
     origins, targets = set(origins), set(targets)
+    levels = _reach_levels(edges, targets, max_conn + 1)
     found = []
 
     def dfs(station, arrived_at, path, visited):
         if len(path) > max_conn + 1:
             return
+        left = max_conn - len(path)            # trains encore possibles après celui-ci
         for e in by_origin.get(station, []):
-            if e["d"] in visited:
+            if e["d"] in visited or e["d"] not in levels[max(0, left)]:
                 continue
             if not path and not (min_dep <= e["dep"] <= max_dep):  # fenêtre de départ (1er train)
                 continue
@@ -190,6 +209,7 @@ def search(edges, origins, targets, max_conn=2, max_results=40, min_dep=0, max_d
             newpath = path + [e]
             if e["d"] in targets:
                 found.append(newpath)
+                continue                        # arrivé : inutile de repartir
             if len(newpath) <= max_conn:
                 dfs(e["d"], e["arr"], newpath, visited | {e["d"]})
 

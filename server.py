@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""TGV Max Planner — serveur HTTP (stdlib, zéro dépendance).
+"""MaxPlan — serveur HTTP (stdlib, zéro dépendance).
 
 Lancer :  python server.py    puis ouvrir http://127.0.0.1:8765
 API :
@@ -8,6 +8,7 @@ API :
   GET /api/explore?from&date&maxconn&sub
   GET /api/stations?q&kind=origin|dest
   GET /api/nearest?lat&lon
+  GET /api/calendar?from&to&maxconn&nights&sub
   GET /healthz
 """
 
@@ -38,7 +39,7 @@ import regions
 import tgvmax_core as core
 from navitia import navitia
 
-VERSION = "3.0"
+VERSION = "3.1"
 WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web"))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
@@ -214,7 +215,7 @@ def itinerary_from_path(path, date, geo):
     legs = [max_leg(e, date, geo) for e in path]
     return {
         "_dep": path[0]["dep"], "_arr": path[-1]["arr"],
-        "type": "max", "paid": False, "cost_eur": 0, "nresa": len(legs),
+        "type": "max", "paid": False, "cost_eur": 0, "nresa": len(legs), "changes": len(legs) - 1,
         "departure": legs[0]["dep"], "arrival": legs[-1]["arr"],
         "arrival_day": path[-1]["arr"] // 1440,
         "duration_min": path[-1]["arr"] - path[0]["dep"],
@@ -229,6 +230,13 @@ def senior_weekend(prefs, date):
 SENIOR_NOTICE = "Max Senior : pas de place à 0 € le samedi ni le dimanche."
 
 
+def ter_horizon_notice():
+    end = (navitia.coverage() or {}).get("end") or ""
+    when = f" (publiés jusqu'au {int(end[6:8])}/{end[4:6]})" if len(end) == 8 else ""
+    return ("Pas de complément TER ce jour-là : la SNCF ne publie les horaires TER que ~3 semaines à "
+            f"l'avance{when}, alors que les places Max sont connues 30 jours à l'avance.")
+
+
 def search_one_day(src, dst, date, opts):
     prefs = opts["prefs"]
     if senior_weekend(prefs, date):
@@ -240,7 +248,7 @@ def search_one_day(src, dst, date, opts):
     win = dict(min_dep=opts["min_dep"], max_dep=opts["max_dep"])
 
     # 1) trajets 100 % Max
-    max_paths = core.search(edges, origins, targets, max_conn=opts["maxconn"], max_results=12, **win)
+    max_paths = core.search(edges, origins, targets, max_conn=opts["maxconn"], max_results=60, **win)
     labels = set(origins)
     for p in max_paths:
         for e in p:
@@ -250,7 +258,7 @@ def search_one_day(src, dst, date, opts):
     ter_itins = []
     dest_geo = dest_place(dst, targets, stations) if opts["ter"] else None
     if dest_geo:
-        best = core.reachable(edges, origins, max_conn=opts["maxconn"], **win)
+        best = core.reachable(edges, origins, max_conn=min(opts["maxconn"], 2), **win)
         tset = set(targets)
         frontier = [s for s in best if s not in tset]
         fgeo = geocode_many(frontier + list(origins))
@@ -332,6 +340,7 @@ def search_one_day(src, dst, date, opts):
         out.append({
             "_dep": path[0]["dep"], "_arr": ter_arr,
             "type": "max+ter", "paid": True, "cost_eur": price["price"], "nresa": len(path),
+            "changes": len(path) + jr["transfers"],
             "departure": legs[0]["dep"], "arrival": jr["arrival"], "arrival_day": ter_arr // 1440,
             "duration_min": ter_arr - path[0]["dep"],
             "nocturnal": (path_nocturnal(path) or core.night_overlap(last_arr, ter_dep)
@@ -347,6 +356,8 @@ def search_one_day(src, dst, date, opts):
         it.pop("_dep"); it.pop("_arr")
     out.sort(key=lambda it: (it["paid"], it["departure"]))
     res = {"itineraries": out}
+    if opts["ter"] and not navitia.date_in_range(date):
+        res["ter_notice"] = ter_horizon_notice()
     if total and not out:
         res["notice"] = f"{total} trajet(s) de nuit masqué(s) — active « Trajets de nuit » pour les voir."
     elif total > len(out):
@@ -389,7 +400,7 @@ def do_search(qs):
     end_min = core.hhmm_to_min(end) if TIME_RE.match(end) else None
     prefs = pricing.prefs_from_qs(qs)
     base = {
-        "prefs": prefs, "maxconn": _int(qs, "maxconn", 1, 0, 2),
+        "prefs": prefs, "maxconn": _int(qs, "maxconn", 3, 0, 3),
         "ter": _flag(qs, "ter", True), "ter_transfers": _int(qs, "ter_transfers", 1, 0, 3),
         "nights": _flag(qs, "nights", False),
     }
@@ -481,6 +492,37 @@ def do_nearest(qs):
     return [{"label": s, "name": display_name(s, g), "km": round(d)} for d, s, g in ranked[:3]]
 
 
+def do_calendar(qs):
+    """Nombre de trajets 100 % Max (sans TER) pour chaque jour de l'open data : le calendrier du mois."""
+    src, dst = _p(qs, "from"), _p(qs, "to")
+    if not src or not dst:
+        raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
+    prefs = pricing.prefs_from_qs(qs)
+    maxconn, nights = _int(qs, "maxconn", 3, 0, 3), _flag(qs, "nights", False)
+
+    def one(date):
+        if senior_weekend(prefs, date):
+            return {"date": date, "n": 0, "blocked": True}
+        try:
+            edges = edges_for(date)
+        except Exception:
+            return {"date": date, "n": None}
+        stations = {e["o"] for e in edges} | {e["d"] for e in edges}
+        paths = core.search(edges, core.resolve_city(src, stations), core.resolve_city(dst, stations),
+                            max_conn=maxconn, max_results=200)
+        if not nights:
+            paths = [p for p in paths if not path_nocturnal(p)]
+        its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p} for p in paths])
+        if not its:
+            return {"date": date, "n": 0}
+        return {"date": date, "n": len(its), "direct": any(len(x["legs"]) == 1 for x in its),
+                "first": core.min_to_hhmm(min(x["_dep"] for x in its)),
+                "best_min": min(x["_arr"] - x["_dep"] for x in its)}
+
+    return {"from": src, "to": dst, "days": list(DAY_POOL.map(one, core.dataset_dates())),
+            "ter_coverage": navitia.coverage()}
+
+
 def do_meta(qs):
     dates = core.dataset_dates()
     return {
@@ -496,6 +538,7 @@ ROUTES = {
     "/api/explore": ("explore", do_explore),
     "/api/stations": ("stations", do_stations),
     "/api/nearest": ("nearest", do_nearest),
+    "/api/calendar": ("calendar", do_calendar),
     "/api/meta": (None, do_meta),
 }
 
@@ -505,6 +548,7 @@ class RateLimiter:
     def __init__(self):
         self.hits = defaultdict(list)
         self.lock = threading.Lock()
+        self.swept = time.time()
 
     def allow(self, key, limit, window):
         now = time.time()
@@ -514,8 +558,10 @@ class RateLimiter:
             if ok:
                 q.append(now)
             self.hits[key] = q
-            if len(self.hits) > 20000:
-                self.hits.clear()
+            if now - self.swept > window:        # oublie les adresses IP sans activité récente
+                self.hits = defaultdict(list, {k: v for k, v in self.hits.items()
+                                               if v and now - v[-1] < window})
+                self.swept = now
             return ok
 
 
@@ -536,7 +582,7 @@ CSP = ("default-src 'self'; img-src 'self' data: https://server.arcgisonline.com
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "TGVMaxPlanner/" + VERSION
+    server_version = "MaxPlan/" + VERSION
     sys_version = ""
 
     def log_message(self, *a):
@@ -640,7 +686,7 @@ def warmup():
     try:
         stations = core.all_stations()
         geocode_many(stations)
-        core.dataset_dates()
+        list(DAY_POOL.map(edges_for, core.dataset_dates()))   # places Max des 30 jours (calendrier)
         print(f"    Préchauffage terminé : {len(stations)} gares Max géocodées.", flush=True)
     except Exception as e:
         print("    Préchauffage incomplet :", e, flush=True)

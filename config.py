@@ -46,6 +46,7 @@ RATE_LIMITS = {               # groupe -> (requêtes autorisées, fenêtre en se
     "explore": (20, 60),
     "stations": (150, 60),
     "nearest": (30, 60),
+    "calendar": (12, 60),
 }
 
 # Complément TER : nombre d'arrivées Max essayées par gare-relais (la plus proche d'abord), espacées d'au moins…

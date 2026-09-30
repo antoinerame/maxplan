@@ -1,4 +1,4 @@
-/* TGV Max Planner — interface */
+/* MaxPlan — interface */
 'use strict';
 (() => {
   /* ================================================================== utilitaires */
@@ -44,6 +44,7 @@
     map: svg('<path d="m9 4-6 2.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/>'),
     board: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M8 4v16"/>'),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
+    cal: svg('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
   };
 
   let toastTimer;
@@ -70,12 +71,12 @@
   const state = {
     meta: null, tab: 'search',
     days: [], rt: false, dir: 'out', sel: { out: null, ret: null }, current: null,
-    toCoord: null, searchSeq: 0, lastQuery: null, editing: false,
+    toCoord: null, searchSeq: 0, lastQuery: null, editing: false, showMore: false, cal: null,
     sort: store.get('sort', 'dep'), freeOnly: store.get('freeOnly', false),
     explore: null, exFilter: '',
   };
-  const opts = Object.assign({ maxconn: '1', ter: true, ter_transfers: '1', nights: false, e_maxconn: '1' }, store.get('opts', {}));
-  let mapOn = store.get('mapOn', true);
+  const opts = Object.assign({ ter: true, ter_transfers: '1', nights: false, e_maxconn: '1' }, store.get('opts', {}));
+  let mapOn = store.get('mapOn', false);
   let profile = Object.assign({ sub: 'jeune', ter: {} }, store.get('profile', {}));
   let favs = store.get('favs', []);
   let theme = store.get('theme', 'auto');
@@ -399,7 +400,6 @@
 
   /* ================================================================== options en pilules */
   const PILLS = {
-    maxconn: { cycle: ['0', '1', '2'], label: v => (v === '0' ? 'Trains directs' : `Max : ${plural(Number(v), 'correspondance', 'correspondances')}`) },
     ter: { toggle: true, label: () => 'Compléter en TER' },
     ter_transfers: { cycle: ['0', '1', '2', '3'], label: v => (v === '0' ? 'TER direct' : `TER : ${plural(Number(v), 'corresp.', 'corresp.')}`) },
     nights: { toggle: true, label: () => 'Trajets de nuit' },
@@ -478,7 +478,7 @@
       f: $('#s-from').value.trim(), fl: $('#s-from').dataset.label || '',
       t: $('#s-to').value.trim(), tl: $('#s-to').dataset.label || '',
       du: $('#s-fd').value, au: $('#s-td').value, h1: $('#s-start').value, h2: $('#s-end').value,
-      mc: opts.maxconn, ter: opts.ter ? '1' : '0', tc: opts.ter_transfers, n: opts.nights ? '1' : '0',
+      ter: opts.ter ? '1' : '0', tc: opts.ter_transfers, n: opts.nights ? '1' : '0',
     };
     if (state.rt) Object.assign(s, { r: '1', rdu: $('#r-fd').value, rau: $('#r-td').value, rh1: $('#r-start').value, rh2: $('#r-end').value });
     return s;
@@ -489,7 +489,6 @@
     if (s.du) setDates(s.du, s.au || s.du);
     $('#s-start').value = s.h1 || '';
     $('#s-end').value = s.h2 || '';
-    if (s.mc != null) opts.maxconn = String(s.mc);
     if (s.ter != null) opts.ter = s.ter !== '0';
     if (s.tc != null) opts.ter_transfers = String(s.tc);
     if (s.n != null) opts.nights = s.n === '1';
@@ -527,7 +526,7 @@
       legs.push({ dir: 'ret', from: to, to: from, fromName: toIn.value.trim(), toName: fromIn.value.trim(), fd: rfd, td: rtd, start: $('#r-start').value, end: $('#r-end').value });
     }
     const common = {
-      maxconn: opts.maxconn, ter: opts.ter ? 1 : 0, ter_transfers: opts.ter_transfers,
+      maxconn: 3, ter: opts.ter ? 1 : 0, ter_transfers: opts.ter_transfers,
       nights: opts.nights ? 1 : 0, ...profileParams(),
     };
     const token = ++state.searchSeq;
@@ -545,7 +544,8 @@
       }
     }
     state.lastQuery = { legs, rt: state.rt };
-    state.dir = 'out'; state.sel = { out: null, ret: null }; state.current = null; state.editing = false;
+    state.dir = 'out'; state.sel = { out: null, ret: null }; state.current = null; state.editing = false; state.showMore = false;
+    closeCal();
     clearMap();
     renderResults();
     refreshView();
@@ -573,7 +573,8 @@
     if (token !== state.searchSeq) return;
     // sélection automatique du premier trajet de chaque sens pour que la carte montre tout de suite quelque chose
     for (const dir of state.rt ? ['out', 'ret'] : ['out']) {
-      const list = visibleTrips(dir), first = list.find(x => !x.it.paid) || list[0];
+      const list = visibleTrips(dir).filter(x => !isExtra(x.it));
+      const first = list.find(x => !x.it.paid) || list[0] || visibleTrips(dir)[0];
       if (first && !state.sel[dir]) state.sel[dir] = first.key;
     }
     state.current = state.sel[state.dir] ? findTrip(state.sel[state.dir]) : null;
@@ -593,6 +594,8 @@
     if (state.freeOnly) list = list.filter(x => !x.it.paid);
     return list.sort(tripSort);
   }
+  // trajets « en plus » : 2 changements ou plus, montrés seulement sur demande (ou s'il n'y a rien d'autre)
+  const isExtra = it => (it.changes ?? it.legs.length - 1) >= 2;
   const visibleTrips = dir => state.days.filter(d => d.dir === dir).flatMap(d => (d.loading ? [] : dayTrips(d)));
   const findTrip = key => {
     const [dir, rest] = key.split('|');
@@ -615,6 +618,7 @@
         <span class="ss-od">${esc(out.fromName || out.from)}<i>${ret ? '⇄' : '→'}</i>${esc(out.toName || out.to)}</span>
         <span class="ss-when">Aller : ${esc(whenText(out))}${ret ? ` · Retour : ${esc(whenText(ret))}` : ''}</span>
       </div>
+      <button class="btn" type="button" id="btn-sum-cal" aria-label="Calendrier du mois">${ICON.cal}<span>Calendrier</span></button>
       <button class="btn" type="button" id="btn-edit">${ICON.edit}<span>Modifier</span></button>`;
   }
 
@@ -661,15 +665,27 @@
     if (loaded < total) html += `<div class="progress"><i style="width:${Math.round(loaded / total * 100)}%"></i></div>`;
     html += '</div>';
 
+    let hiddenExtra = 0, extraTotal = 0;
     for (const d of shown) {
-      const list = d.loading ? [] : dayTrips(d);
+      const all = d.loading ? [] : dayTrips(d);
+      const main = all.filter(x => !isExtra(x.it));
+      const openAll = state.showMore || !main.length;      // rien de simple ce jour-là : on montre tout
+      const list = openAll ? all : main;
+      extraTotal += all.length - main.length;
+      if (!openAll) hiddenExtra += all.length - main.length;
       html += `<h3 class="day"><span>${fmtDay(d.date)}</span><small>${d.loading ? 'recherche…' : plural(list.length, 'trajet', 'trajets')}</small></h3>`;
       if (d.loading) { html += skeleton(2); continue; }
       if (d.error) { html += `<p class="notice err">${esc(d.error)}</p>`; continue; }
       if (d.notice) html += `<p class="notice">${esc(d.notice)}</p>`;
+      if (d.ter_notice) html += `<p class="notice">${esc(d.ter_notice)}</p>`;
       if (list.length) html += `<ul class="trips">${list.map(x => tripRow(x.it, x.key)).join('')}</ul>`;
       else if (!d.notice) html += `<p class="none">${state.freeOnly && (d.itineraries || []).length ? 'Pas de trajet 100 % gratuit ce jour-là.' : 'Aucun trajet ce jour-là.'}</p>`;
       if (d.hidden_night) html += `<p class="none">+ ${plural(d.hidden_night, 'trajet de nuit masqué', 'trajets de nuit masqués')} (filtre « Trajets de nuit »).</p>`;
+    }
+    if (hiddenExtra) {
+      html += `<button class="more" type="button" id="btn-more">Afficher plus de résultats<small>${plural(hiddenExtra, 'trajet', 'trajets')} avec 2 changements ou plus</small></button>`;
+    } else if (state.showMore && extraTotal) {
+      html += `<button class="more" type="button" id="btn-more">Masquer les trajets à 2 changements ou plus</button>`;
     }
     if (shown.every(d => !d.loading) && !all.length) {
       html += `<div class="empty"><h2>Pas de train Max sur cette période</h2><p>Essaie d'autres dates, d'autoriser une correspondance de plus, d'activer le complément TER ou les trajets de nuit (bouton « Modifier »).</p></div>`;
@@ -687,7 +703,8 @@
     const first = it.legs[0], last = it.legs[it.legs.length - 1];
     const via = it.legs.slice(0, -1).map(l => l.to_name);
     const nconn = it.legs.length - 1;
-    const meta = [fmtDur(it.duration_min), nconn ? plural(nconn, 'correspondance', 'correspondances') : 'direct'];
+    const nch = it.changes ?? nconn;
+    const meta = [fmtDur(it.duration_min), nch ? plural(nch, 'changement', 'changements') : 'direct'];
     if (via.length) meta.push(`via ${via.join(', ')}`);
     const ic = it.legs.some(l => l.free && l.mode === 'Intercités');
     const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
@@ -757,7 +774,53 @@
     drawCurrent();
   }
 
+  /* ================================================================== calendrier du mois */
+  const WD = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
+  function closeCal() { $('#cal').hidden = true; $('#btn-cal').setAttribute('aria-expanded', 'false'); }
+  async function openCal() {
+    const from = stationValue($('#s-from')), to = stationValue($('#s-to'));
+    const box = $('#cal');
+    box.hidden = false;
+    $('#btn-cal').setAttribute('aria-expanded', 'true');
+    if (!from || !to) { box.innerHTML = `<p class="cal-msg">Indique d'abord un départ et une arrivée : le calendrier montre les jours avec des trains à 0 €.</p>`; return; }
+    const key = `${from}|${to}|${opts.nights}|${profile.sub}`;
+    if (state.cal?.key !== key) {
+      box.innerHTML = `<p class="cal-msg">Recherche des trains à 0 € sur les 30 prochains jours…</p>`;
+      try {
+        const r = await api('/api/calendar', { from, to, nights: opts.nights ? 1 : 0, ...profileParams() });
+        state.cal = { key, r };
+      } catch (e) { box.innerHTML = `<p class="cal-msg err">${esc(e.message)}</p>`; return; }
+    }
+    renderCal();
+  }
+  function renderCal() {
+    const { r } = state.cal, box = $('#cal');
+    const days = r.days.filter(d => d.date);
+    if (!days.length) { box.innerHTML = '<p class="cal-msg">Données indisponibles.</p>'; return; }
+    const sel = $('#s-fd').value;
+    const ter = r.ter_coverage?.end ? `${r.ter_coverage.end.slice(0, 4)}-${r.ter_coverage.end.slice(4, 6)}-${r.ter_coverage.end.slice(6, 8)}` : null;
+    const best = Math.max(...days.map(d => d.n || 0));
+    // grille lundi → dimanche, en commençant au lundi de la première semaine
+    const first = noon(days[0].date), lead = (first.getDay() + 6) % 7;
+    let cells = Array.from({ length: lead }, () => '<span class="cal-pad"></span>');
+    let month = -1;
+    for (const d of days) {
+      const dt = noon(d.date);
+      const n = d.n || 0;
+      const lvl = !n ? 0 : n >= best * 0.66 ? 3 : n >= best * 0.33 ? 2 : 1;
+      const title = d.blocked ? 'Max Senior : pas de 0 € le week-end' : n ? `${plural(n, 'trajet', 'trajets')} à 0 €${d.first ? ` · premier départ ${d.first}` : ''}${d.best_min ? ` · le plus rapide ${fmtDur(d.best_min)}` : ''}` : 'Aucun trajet à 0 €';
+      const mlabel = dt.getMonth() !== month ? `<em>${MONTHS[dt.getMonth()]}</em>` : '';
+      month = dt.getMonth();
+      cells.push(`<button type="button" class="cal-day l${lvl}${d.date === sel ? ' is-sel' : ''}${ter && d.date > ter ? ' no-ter' : ''}" data-day="${d.date}" title="${esc(title)}" aria-label="${esc(fmtDay(d.date))} : ${esc(title)}">
+        ${mlabel}<b>${dt.getDate()}</b><span>${n ? n : '–'}</span></button>`);
+    }
+    box.innerHTML = `<div class="cal-head"><b>Trains à 0 € par jour</b><small>100 % Max, sans TER · touche un jour pour voir les trains</small></div>
+      <div class="cal-grid">${WD.map(w => `<span class="cal-wd">${w}</span>`).join('')}${cells.join('')}</div>
+      ${ter ? `<p class="cal-msg">Jours hachurés : horaires TER pas encore publiés (complément TER indisponible).</p>` : ''}`;
+  }
+
   /* ================================================================== accueil : idées */
+
   const EXAMPLES = [['Paris', 'paris', 'Lyon', 'lyon'], ['Paris', 'paris', 'Bordeaux', 'bordeaux'], ['Lille', 'lille', 'Marseille', 'marseille'],
     ['Paris', 'paris', 'Toulouse', 'toulouse'], ['Lyon', 'lyon', 'Montpellier', 'montpellier'], ['Paris', 'paris', 'Annecy', 'annecy']];
   function renderIdeas() {
@@ -945,6 +1008,16 @@
     $('#s-td').addEventListener('change', markQuick);
     $('#r-fd').addEventListener('change', () => { if (!$('#r-td').value || $('#r-td').value < $('#r-fd').value) $('#r-td').value = $('#r-fd').value; });
     $('#btn-add-ret').addEventListener('click', () => { setRT(true); $('#r-fd').focus(); });
+    $('#btn-cal').addEventListener('click', () => ($('#cal').hidden ? openCal() : closeCal()));
+    $('#cal').addEventListener('click', e => {
+      const b = e.target.closest('[data-day]');
+      if (!b) return;
+      setDates(b.dataset.day, b.dataset.day);
+      $('#s-start').value = ''; $('#s-end').value = '';
+      if (state.rt && $('#r-fd').value < b.dataset.day) setRT(true, addDays(b.dataset.day, 2));
+      runSearch();
+    });
+    for (const id of ['#s-from', '#s-to']) $(id).addEventListener('change', () => { if (!$('#cal').hidden) openCal(); });
     $('#btn-rm-ret').addEventListener('click', () => setRT(false));
 
     $('#form-search').addEventListener('submit', e => { e.preventDefault(); runSearch(); });
@@ -952,6 +1025,7 @@
     $('#btn-fav').addEventListener('click', toggleFav);
     $('#search-sum').addEventListener('click', e => {
       if (e.target.closest('#btn-edit')) { state.editing = true; refreshView(false); $('#s-from').focus(); }
+      if (e.target.closest('#btn-sum-cal')) { state.editing = true; refreshView(false); openCal(); }
     });
 
     // délégation : boutons carte (résultats et explorer)
@@ -963,12 +1037,13 @@
       if (hit) { select(hit.closest('.trip').dataset.key); return; }
       const dirB = e.target.closest('[data-dir]');
       if (dirB) { setDir(dirB.dataset.dir); return; }
+      if (e.target.closest('#btn-more')) { state.showMore = !state.showMore; renderResults(); return; }
       const sortB = e.target.closest('#sort button');
       if (sortB) { state.sort = sortB.dataset.v; store.set('sort', state.sort); renderResults(); return; }
       if (e.target.closest('#btn-share')) {
         const url = shareURL();
         try {
-          if (navigator.share && isMobile()) await navigator.share({ title: 'TGV Max Planner', text: 'Regarde ces trains à 0 €', url });
+          if (navigator.share && isMobile()) await navigator.share({ title: 'MaxPlan', text: 'Regarde ces trains à 0 €', url });
           else { await navigator.clipboard.writeText(url); toast('Lien copié : envoie-le à qui tu veux.'); }
         } catch { toast(url); }
       }

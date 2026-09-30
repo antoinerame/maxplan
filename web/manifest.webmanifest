@@ -1,7 +1,7 @@
 {
-  "name": "TGV Max Planner",
-  "short_name": "TGV Max",
-  "description": "Les TGV Max à 0 €, avec correspondances et compléments TER, sur une carte de France.",
+  "name": "MaxPlan",
+  "short_name": "MaxPlan",
+  "description": "Les trains Max à 0 €, avec correspondances et compléments TER, en aller simple ou aller-retour.",
   "lang": "fr",
   "start_url": "/",
   "scope": "/",
