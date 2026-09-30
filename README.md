@@ -27,16 +27,23 @@ navigateur. Une recherche peut aussi se partager par lien (bouton « Partager »
 ## Ce que fait l'app
 
 - **Itinéraire** : départ → arrivée (autocomplétion, « gare la plus proche de moi »), plage de dates
-  avec heures facultatives (« du jeudi 18 h au vendredi 15 h »), dates rapides, correspondances Max
-  et TER réglables, trajets de nuit masqués par défaut. Résultats façon tableau des départs, triables
-  (départ, durée, prix), filtre « 100 % gratuits », détail en plan de ligne, lien SNCF Connect.
+  avec heures facultatives (« du jeudi 18 h au vendredi 15 h »), **aller-retour** (« Ajouter le
+  retour »), dates rapides, correspondances Max et TER réglables, trajets de nuit masqués par défaut.
+  Résultats façon tableau des départs en gare, triables (départ, durée, prix), filtre « 100 %
+  gratuits », détail en plan de ligne, lien SNCF Connect qui ouvre le bon jour à la bonne heure.
+  La carte n'apparaît qu'avec des résultats, et peut être masquée pour ne garder que le tableau.
+- **TGV INOUI et Intercités** (y compris de nuit) ouverts au Max. Le complément TER essaie plusieurs
+  arrivées Max par gare-relais (ex. Paris → Lyon en Max puis TER vers Saint-Étienne, à différentes
+  heures), écarte les détours et les options moins bonnes qu'un trajet gratuit.
 - **Explorer** : toutes les gares atteignables à 0 € depuis une gare un jour donné ; une touche sur
   une gare ou une ligne ouvre la recherche d'itinéraire.
 - **Favoris**, **thème clair/sombre/auto**, **mobile** (carte plein écran + panneau coulissant),
   **application installable** (PWA).
-- **Prix TER estimés tronçon par tronçon** : chaque tronçon TER reçoit la réduction déclarée pour
-  *sa* région (détection géographique sur les contours officiels), les TGV/Intercités le −30 %
-  Max Avantage. Estimations : le prix réel est sur SNCF Connect.
+- **Prix TER estimés** : tarif normal estimé sur la distance (barème dégressif, calé sur des prix
+  publiés), puis chaque tronçon reçoit la réduction déclarée pour *sa* région (détection
+  géographique sur les contours officiels), appliquée au tarif normal et arrondie au décime
+  supérieur comme dans les CGV TER. Les promos SNCF ne se cumulent pas avec les cartes. Estimations :
+  le prix réel est sur SNCF Connect.
 
 ## Architecture
 

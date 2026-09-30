@@ -17,7 +17,10 @@ import urllib.request
 import config
 
 BASE = "https://api.sncf.com/v1"
-CACHE_FILE = os.path.join(config.DATA_DIR, "geo_cache.json")
+CACHE_FILE = os.path.join(config.DATA_DIR, "geo_cache_v2.json")   # v2 : choix de la gare par ville
+
+# Trains exclus des compléments « TER » : grande vitesse et trains à réservation obligatoire.
+FORBIDDEN_MODES = ("OUI", "TGVOUIGO", "OUIGO_TC", "LYR", "DBS", "ICN")
 
 # Surcharges manuelles pour les libellés tgvmax ambigus / "(intramuros)".
 LABEL_OVERRIDES = {
@@ -105,13 +108,23 @@ class Navitia:
 
     # -- Géocodage ---------------------------------------------------------
     def _lookup(self, q):
-        d = self._get("/coverage/sncf/places?type%5B%5D=stop_area&q=" + urllib.parse.quote(q))
-        for p in d.get("places", []) if isinstance(d, dict) else []:
+        """Meilleure gare pour q. Navitia classe « Paris - Gare de Lyon » avant « Lyon Part Dieu »
+        quand on cherche « Lyon » : on préfère les gares dont la ville ou le nom commence par q."""
+        d = self._get("/coverage/sncf/places?type%5B%5D=stop_area&count=8&q=" + urllib.parse.quote(q))
+        fq = _fold(q)
+        best = None
+        for rank, p in enumerate(d.get("places", []) if isinstance(d, dict) else []):
             coord = (p.get("stop_area") or {}).get("coord") or {}
-            if coord.get("lat") and coord.get("lon"):
-                return {"id": p["id"], "name": p.get("name", q),
-                        "lat": float(coord["lat"]), "lon": float(coord["lon"])}
-        return None
+            if not (coord.get("lat") and coord.get("lon")):
+                continue
+            name = p.get("name", q)
+            m = re.search(r"\(([^)]*)\)\s*$", name)
+            city, fname = _fold(m.group(1) if m else ""), _fold(name)
+            score = 0 if (fname.startswith(fq) or city == fq) else 1 if city.startswith(fq) else 2
+            if best is None or (score, rank) < best[0]:
+                best = ((score, rank), {"id": p["id"], "name": name,
+                                        "lat": float(coord["lat"]), "lon": float(coord["lon"])})
+        return best and best[1]
 
     def geocode(self, label):
         v = self._cache.get(label)
@@ -177,7 +190,8 @@ class Navitia:
         path = (f"/coverage/sncf/journeys?from={urllib.parse.quote(from_id)}"
                 f"&to={urllib.parse.quote(to_id)}&datetime={dt}"
                 f"&datetime_represents=departure&max_nb_journeys=1"
-                f"&max_nb_transfers={int(max_transfers)}")
+                f"&max_nb_transfers={int(max_transfers)}"
+                + "".join(f"&forbidden_uris%5B%5D=commercial_mode:{m}" for m in FORBIDDEN_MODES))
         d = self._get(path)
         journeys = d.get("journeys", []) if isinstance(d, dict) else []
         if not journeys:

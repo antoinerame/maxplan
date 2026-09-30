@@ -14,6 +14,7 @@
   const fmtDur = m => (m == null ? '' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`);
   const toMin = hm => { const [h, m] = String(hm || '0:0').split(':').map(Number); return h * 60 + m; };
   const DAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+  const DAYS_S = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
   const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
   const noon = iso => new Date(iso + 'T12:00:00');
   const isoOf = d => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
@@ -21,6 +22,7 @@
   const addDays = (iso, n) => { const d = noon(iso); d.setDate(d.getDate() + n); return isoOf(d); };
   const fmtDay = iso => { const d = noon(iso); return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; };
   const fmtShort = iso => { const d = noon(iso); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+  const fmtDayS = iso => { const d = noon(iso); return `${DAYS_S[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; };
   const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
   const isMobile = () => matchMedia('(max-width: 899px)').matches;
   const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -28,6 +30,7 @@
   const svg = p => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
   const ICON = {
     swap: svg('<path d="M7 20V4M3.5 7.5 7 4l3.5 3.5M17 4v16M13.5 16.5 17 20l3.5-3.5"/>'),
+    swapH: svg('<path d="M4 7h16M16.5 3.5 20 7l-3.5 3.5M20 17H4M7.5 13.5 4 17l3.5 3.5"/>'),
     locate: svg('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
     search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-4.2-4.2"/>'),
     star: svg('<path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/>'),
@@ -38,6 +41,9 @@
     auto: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/>'),
     ext: svg('<path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'),
     trash: svg('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>'),
+    map: svg('<path d="m9 4-6 2.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/>'),
+    board: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M8 4v16"/>'),
+    edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
   };
 
   let toastTimer;
@@ -63,10 +69,13 @@
   /* ================================================================== état */
   const state = {
     meta: null, tab: 'search',
-    days: [], selKey: null, current: null, toCoord: null, searchSeq: 0, lastParams: null,
+    days: [], rt: false, dir: 'out', sel: { out: null, ret: null }, current: null,
+    toCoord: null, searchSeq: 0, lastQuery: null, editing: false,
     sort: store.get('sort', 'dep'), freeOnly: store.get('freeOnly', false),
     explore: null, exFilter: '',
   };
+  const opts = Object.assign({ maxconn: '1', ter: true, ter_transfers: '1', nights: false, e_maxconn: '1' }, store.get('opts', {}));
+  let mapOn = store.get('mapOn', true);
   let profile = Object.assign({ sub: 'jeune', ter: {} }, store.get('profile', {}));
   let favs = store.get('favs', []);
   let theme = store.get('theme', 'auto');
@@ -207,12 +216,8 @@
     MAP.lastFit = [pts, maxZoom];
     if (!pts.length) { map.fitBounds(METRO); return; }
     if (pts.length === 1) { map.setView(pts[0], 9); return; }
-    let opts = { padding: [56, 56], maxZoom };
-    if (isMobile()) {
-      const sheet = Math.min($('#panel').getBoundingClientRect().height, innerHeight * 0.66);
-      opts = { paddingTopLeft: [28, 64], paddingBottomRight: [28, sheet + 20], maxZoom };
-    }
-    map.fitBounds(L.latLngBounds(pts), opts);
+    const pad = isMobile() ? [28, 28] : [56, 56];
+    map.fitBounds(L.latLngBounds(pts), { padding: pad, maxZoom });
   }
 
   function clearMap() { MAP.route?.clearLayers(); MAP.hover?.clearLayers(); }
@@ -296,6 +301,40 @@
     mapTheme();
   }
 
+  /* ================================================================== vues : accueil / résultats, carte affichée ou non */
+  function hasResults() {
+    return (state.tab === 'search' && state.days.length > 0) || (state.tab === 'explore' && !!state.explore);
+  }
+  function refreshView(fit = true) {
+    const app = $('#app');
+    const results = hasResults();
+    app.dataset.view = results ? 'results' : 'home';
+    app.dataset.map = mapOn ? 'on' : 'off';
+    const editing = state.tab === 'search' && (!results || state.editing);
+    $('#form-search').hidden = !editing;
+    $('#search-sum').hidden = editing || state.tab !== 'search';
+    if (!editing) renderSummary();
+    if (results && mapOn) {
+      ensureMap();
+      requestAnimationFrame(() => { MAP.map.invalidateSize(); drawCurrent(fit); });
+    }
+  }
+  function drawCurrent(fit = true) {
+    if (!MAP.map) return;
+    if (state.tab === 'search' && state.current) drawItinerary(state.current, fit);
+    else if (state.tab === 'explore' && state.explore) drawExplore(state.explore, fit);
+    else clearMap();
+  }
+  function ensureMap() { if (!MAP.map) initMap(); }
+  function setMapOn(on) {
+    mapOn = on;
+    store.set('mapOn', on);
+    refreshView();
+    renderResultsHeadOnly();
+  }
+  const mapBtn = () => `<button class="btn ghost sm" type="button" data-map-toggle>${mapOn ? ICON.board : ICON.map}<span>${mapOn ? 'Masquer la carte' : 'Voir la carte'}</span></button>`;
+  function renderResultsHeadOnly() { $$('[data-map-toggle]').forEach(b => { b.outerHTML = mapBtn(); }); }
+
   /* ================================================================== champs gare (autocomplétion) */
   const stationValue = input => input.dataset.label || input.value.trim();
   function setStation(input, name, label) {
@@ -311,7 +350,7 @@
       if (!items.length) { close(); return; }
       list.innerHTML = items.map((it, i) =>
         `<li role="option" id="${list.id}-${i}" data-i="${i}" aria-selected="${i === active}"><span>${esc(it.name)}</span>` +
-        `<em class="tag ${it.max ? 'max' : 'ter'}">${it.max ? 'TGV Max' : 'TER'}</em></li>`).join('');
+        `<em class="tag ${it.max ? 'max' : 'ter'}">${it.max ? 'Max' : 'TER'}</em></li>`).join('');
       list.hidden = false;
       input.setAttribute('aria-expanded', 'true');
       if (active >= 0) input.setAttribute('aria-activedescendant', `${list.id}-${active}`);
@@ -341,7 +380,6 @@
     });
     list.addEventListener('mousedown', e => { const li = e.target.closest('li'); if (li) { e.preventDefault(); pick(Number(li.dataset.i)); } });
     input.addEventListener('blur', () => setTimeout(close, 120));
-    input.addEventListener('focus', () => { if (isMobile() && $('#panel').dataset.sheet === 'peek') setSheet('full'); });
   }
 
   function locate(input) {
@@ -354,20 +392,49 @@
         if (!r.length) { toast('La liste des gares se prépare encore, réessaie dans une minute.'); return; }
         setStation(input, r[0].name, r[0].label);
         syncFav();
-        toast(`Gare TGV Max la plus proche : ${r[0].name} (${r[0].km} km)`);
+        toast(`Gare Max la plus proche : ${r[0].name} (${r[0].km} km)`);
       } catch (e) { toast(e.message); }
     }, () => toast("Position refusée ou indisponible. Tape le nom de ta gare."), { timeout: 10000, maximumAge: 600000 });
   }
 
-  /* ================================================================== formulaire */
-  const segVal = name => $(`.seg[data-name="${name}"] [aria-pressed="true"]`)?.dataset.v;
-  function setSeg(name, v) {
-    $$(`.seg[data-name="${name}"] button`).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === String(v))));
+  /* ================================================================== options en pilules */
+  const PILLS = {
+    maxconn: { cycle: ['0', '1', '2'], label: v => (v === '0' ? 'Trains directs' : `Max : ${plural(Number(v), 'correspondance', 'correspondances')}`) },
+    ter: { toggle: true, label: () => 'Compléter en TER' },
+    ter_transfers: { cycle: ['0', '1', '2', '3'], label: v => (v === '0' ? 'TER direct' : `TER : ${plural(Number(v), 'corresp.', 'corresp.')}`) },
+    nights: { toggle: true, label: () => 'Trajets de nuit' },
+    e_maxconn: { cycle: ['0', '1', '2'], label: v => (v === '0' ? 'Trains directs' : plural(Number(v), 'correspondance', 'correspondances')) },
+  };
+  function renderPills() {
+    for (const [name, p] of Object.entries(PILLS)) {
+      const b = $(`.pill[data-pill="${name}"]`);
+      if (!b) continue;
+      const v = opts[name];
+      if (p.toggle) {
+        b.setAttribute('aria-pressed', String(!!v));
+        b.innerHTML = `${esc(p.label(v))}<i>${v ? '✓' : '+'}</i>`;
+        b.title = v ? 'Activé — toucher pour désactiver' : 'Désactivé — toucher pour activer';
+      } else {
+        b.setAttribute('aria-pressed', 'false');
+        b.innerHTML = `${esc(p.label(v))}<i>↻</i>`;
+        b.title = 'Toucher pour changer';
+      }
+    }
+    $('.pill[data-pill="ter_transfers"]').hidden = !opts.ter;
+  }
+  function clickPill(name) {
+    const p = PILLS[name];
+    if (p.toggle) opts[name] = !opts[name];
+    else opts[name] = p.cycle[(p.cycle.indexOf(opts[name]) + 1) % p.cycle.length];
+    store.set('opts', opts);
+    renderPills();
   }
 
+  /* ================================================================== dates, aller-retour */
+  const meta = () => state.meta?.dates || {};
   function clampDate(iso) {
-    if (!state.meta?.dates?.start) return iso;
-    const { start, end } = state.meta.dates;
+    const { start, end } = meta();
+    if (!start) return iso;
     return iso < start ? start : iso > end ? end : iso;
   }
   function setDates(fd, td) {
@@ -394,22 +461,27 @@
       c.setAttribute('aria-pressed', String(a === fd && b === td));
     });
   }
-
-  function updateOptsSummary() {
-    const mc = segVal('maxconn'), ter = $('#s-ter').checked, tt = segVal('ter_transfers'), n = $('#s-nights').checked;
-    $('#row-tt').hidden = !ter;
-    const parts = [mc === '0' ? 'TGV Max direct' : `${plural(Number(mc), 'corresp.', 'corresp.')} Max`,
-      ter ? `TER (${tt} corresp.)` : 'sans TER', n ? 'nuit incluse' : 'sans nuit'];
-    $('#opts-sum').textContent = parts.join(' · ');
+  function setRT(on, fd, td) {
+    state.rt = on;
+    $('#when-ret').hidden = !on;
+    $('#btn-add-ret').hidden = on;
+    if (on) {
+      const base = $('#s-td').value || $('#s-fd').value || todayISO();
+      const a = clampDate(fd || $('#r-fd').value || addDays(base, 2));
+      $('#r-fd').value = a < base ? clampDate(addDays(base, 1)) : a;
+      $('#r-td').value = clampDate(td || ($('#r-td').value >= $('#r-fd').value ? $('#r-td').value : $('#r-fd').value));
+    }
   }
 
   function formState() {
-    return {
+    const s = {
       f: $('#s-from').value.trim(), fl: $('#s-from').dataset.label || '',
       t: $('#s-to').value.trim(), tl: $('#s-to').dataset.label || '',
       du: $('#s-fd').value, au: $('#s-td').value, h1: $('#s-start').value, h2: $('#s-end').value,
-      mc: segVal('maxconn'), ter: $('#s-ter').checked ? '1' : '0', tc: segVal('ter_transfers'), n: $('#s-nights').checked ? '1' : '0',
+      mc: opts.maxconn, ter: opts.ter ? '1' : '0', tc: opts.ter_transfers, n: opts.nights ? '1' : '0',
     };
+    if (state.rt) Object.assign(s, { r: '1', rdu: $('#r-fd').value, rau: $('#r-td').value, rh1: $('#r-start').value, rh2: $('#r-end').value });
+    return s;
   }
   function applyState(s) {
     if (s.f != null) setStation($('#s-from'), s.f, s.fl);
@@ -417,11 +489,15 @@
     if (s.du) setDates(s.du, s.au || s.du);
     $('#s-start').value = s.h1 || '';
     $('#s-end').value = s.h2 || '';
-    if (s.mc != null) setSeg('maxconn', s.mc);
-    if (s.ter != null) $('#s-ter').checked = s.ter !== '0';
-    if (s.tc != null) setSeg('ter_transfers', s.tc);
-    if (s.n != null) $('#s-nights').checked = s.n === '1';
-    updateOptsSummary();
+    if (s.mc != null) opts.maxconn = String(s.mc);
+    if (s.ter != null) opts.ter = s.ter !== '0';
+    if (s.tc != null) opts.ter_transfers = String(s.tc);
+    if (s.n != null) opts.nights = s.n === '1';
+    if (s.r === '1' && s.rdu) {
+      setRT(true, s.rdu, s.rau || s.rdu);
+      $('#r-start').value = s.rh1 || ''; $('#r-end').value = s.rh2 || '';
+    } else setRT(false);
+    renderPills();
     syncFav();
   }
   function shareURL() {
@@ -431,60 +507,79 @@
   }
 
   /* ================================================================== recherche */
+  function daysBetween(fd, td) {
+    if (td < fd) [fd, td] = [td, fd];
+    const out = [];
+    for (let d = fd; d <= td && out.length < 31; d = addDays(d, 1)) out.push(d);
+    return out;
+  }
+
   async function runSearch() {
     const fromIn = $('#s-from'), toIn = $('#s-to');
     const from = stationValue(fromIn), to = stationValue(toIn);
-    if (!from || !to) { toast("Indique une gare de départ et une gare d'arrivée."); (from ? toIn : fromIn).focus(); return; }
-    let fd = $('#s-fd').value, td = $('#s-td').value || fd;
+    if (!from || !to) { state.editing = true; refreshView(); toast("Indique une gare de départ et une gare d'arrivée."); (from ? toIn : fromIn).focus(); return; }
+    const fd = $('#s-fd').value, td = $('#s-td').value || fd;
     if (!fd) { toast('Choisis une date de départ.'); return; }
-    if (td < fd) [fd, td] = [td, fd];
-    const days = [];
-    for (let d = fd; d <= td && days.length < 31; d = addDays(d, 1)) days.push(d);
-    const start = $('#s-start').value, end = $('#s-end').value;
+    const legs = [{ dir: 'out', from, to, fromName: fromIn.value.trim(), toName: toIn.value.trim(), fd, td, start: $('#s-start').value, end: $('#s-end').value }];
+    if (state.rt) {
+      const rfd = $('#r-fd').value, rtd = $('#r-td').value || rfd;
+      if (!rfd) { toast('Choisis une date de retour.'); return; }
+      legs.push({ dir: 'ret', from: to, to: from, fromName: toIn.value.trim(), toName: fromIn.value.trim(), fd: rfd, td: rtd, start: $('#r-start').value, end: $('#r-end').value });
+    }
     const common = {
-      from, to, maxconn: segVal('maxconn'), ter: $('#s-ter').checked ? 1 : 0, ter_transfers: segVal('ter_transfers'),
-      nights: $('#s-nights').checked ? 1 : 0, ...profileParams(),
+      maxconn: opts.maxconn, ter: opts.ter ? 1 : 0, ter_transfers: opts.ter_transfers,
+      nights: opts.nights ? 1 : 0, ...profileParams(),
     };
     const token = ++state.searchSeq;
-    state.days = days.map(d => ({ date: d, loading: true }));
-    state.selKey = null; state.current = null;
-    state.lastParams = { from, to };
+    const queue = [];
+    state.days = [];
+    for (const leg of legs) {
+      const days = daysBetween(leg.fd, leg.td);
+      const first = days[0], last = days[days.length - 1];
+      for (const d of days) {
+        state.days.push({ dir: leg.dir, date: d, loading: true });
+        const params = { ...common, from: leg.from, to: leg.to, from_date: d, to_date: d };
+        if (d === first && leg.start) params.start = leg.start;
+        if (d === last && leg.end) params.end = leg.end;
+        queue.push({ dir: leg.dir, date: d, params });
+      }
+    }
+    state.lastQuery = { legs, rt: state.rt };
+    state.dir = 'out'; state.sel = { out: null, ret: null }; state.current = null; state.editing = false;
     clearMap();
     renderResults();
+    refreshView();
     store.set('last', formState());
     history.replaceState(null, '', shareURL().replace(location.origin, ''));
-    if (isMobile()) {
-      document.activeElement?.blur();
-      setSheet('half');
-      $('#scroll').scrollTo({ top: $('#results').offsetTop, behavior: 'smooth' });   // aller droit aux résultats
-    }
-    $('#btn-search').disabled = true;
+    document.activeElement?.blur();
+    if (isMobile()) scrollTo({ top: 0, behavior: 'smooth' });
+    else $('#panel').scrollTo({ top: 0 });
 
-    const queue = [...days];
     const worker = async () => {
       while (queue.length) {
-        const d = queue.shift();
-        const params = { ...common, from_date: d, to_date: d };
-        if (d === fd && start) params.start = start;
-        if (d === td && end) params.end = end;
+        const job = queue.shift();
         let day;
         try {
-          const r = await api('/api/search', params);
+          const r = await api('/api/search', job.params);
           day = r.days[0];
-          if (r.to_coord) state.toCoord = r.to_coord;
-        } catch (e) { day = { date: d, itineraries: [], error: e.message }; }
+          if (r.to_coord && job.dir === 'out') state.toCoord = r.to_coord;
+        } catch (e) { day = { date: job.date, itineraries: [], error: e.message }; }
         if (token !== state.searchSeq) return;
-        Object.assign(state.days.find(x => x.date === d), day, { loading: false });
+        Object.assign(state.days.find(x => x.dir === job.dir && x.date === job.date), day, { loading: false });
         renderResults();
       }
     };
     await Promise.all([worker(), worker(), worker()]);
     if (token !== state.searchSeq) return;
-    $('#btn-search').disabled = false;
-    // sélection automatique du premier trajet pour que la carte montre tout de suite quelque chose
-    const first = visibleTrips()[0];
-    if (first && !state.selKey) select(first.key, false);
-    else if (!first && state.toCoord) fitTo([[state.toCoord.lat, state.toCoord.lon]]);
+    // sélection automatique du premier trajet de chaque sens pour que la carte montre tout de suite quelque chose
+    for (const dir of state.rt ? ['out', 'ret'] : ['out']) {
+      const list = visibleTrips(dir), first = list.find(x => !x.it.paid) || list[0];
+      if (first && !state.sel[dir]) state.sel[dir] = first.key;
+    }
+    state.current = state.sel[state.dir] ? findTrip(state.sel[state.dir]) : null;
+    renderResults();
+    if (state.current) drawCurrent();
+    else if (state.toCoord && MAP.map) fitTo([[state.toCoord.lat, state.toCoord.lon]]);
   }
 
   function tripSort(a, b) {
@@ -494,40 +589,79 @@
     return toMin(A.departure) - toMin(B.departure) || A.cost_eur - B.cost_eur;
   }
   function dayTrips(d) {
-    let list = (d.itineraries || []).map((it, i) => ({ it, key: `${d.date}#${i}`, date: d.date }));
+    let list = (d.itineraries || []).map((it, i) => ({ it, key: `${d.dir}|${d.date}#${i}`, date: d.date }));
     if (state.freeOnly) list = list.filter(x => !x.it.paid);
     return list.sort(tripSort);
   }
-  const visibleTrips = () => state.days.flatMap(d => (d.loading ? [] : dayTrips(d)));
+  const visibleTrips = dir => state.days.filter(d => d.dir === dir).flatMap(d => (d.loading ? [] : dayTrips(d)));
   const findTrip = key => {
-    const [date, i] = key.split('#');
-    const d = state.days.find(x => x.date === date);
+    const [dir, rest] = key.split('|');
+    const [date, i] = rest.split('#');
+    const d = state.days.find(x => x.dir === dir && x.date === date);
     return d?.itineraries?.[Number(i)] || null;
   };
 
+  function whenText(leg) {
+    const from = fmtDayS(leg.fd) + (leg.start ? ` dès ${leg.start}` : '');
+    if (leg.td === leg.fd) return from + (leg.end ? ` jusqu'à ${leg.end}` : '');
+    return `du ${from} au ${fmtDayS(leg.td)}${leg.end ? ` ${leg.end}` : ''}`;
+  }
+  function renderSummary() {
+    const q = state.lastQuery;
+    const box = $('#search-sum');
+    if (!q) { box.innerHTML = ''; return; }
+    const [out, ret] = q.legs;
+    box.innerHTML = `<div class="ss-main">
+        <span class="ss-od">${esc(out.fromName || out.from)}<i>${ret ? '⇄' : '→'}</i>${esc(out.toName || out.to)}</span>
+        <span class="ss-when">Aller : ${esc(whenText(out))}${ret ? ` · Retour : ${esc(whenText(ret))}` : ''}</span>
+      </div>
+      <button class="btn" type="button" id="btn-edit">${ICON.edit}<span>Modifier</span></button>`;
+  }
+
   function renderResults() {
     const box = $('#results');
-    if (!state.days.length) { box.innerHTML = emptyHTML(); return; }
+    if (!state.days.length) { box.innerHTML = ''; return; }
+    const dirs = state.rt ? ['out', 'ret'] : ['out'];
+    const shown = state.days.filter(d => d.dir === state.dir);
     const loaded = state.days.filter(d => !d.loading).length, total = state.days.length;
-    const all = state.days.flatMap(d => d.itineraries || []);
+    const all = shown.flatMap(d => d.itineraries || []);
     const freeN = all.filter(t => !t.paid).length;
     const paid = all.filter(t => t.paid).map(t => t.cost_eur);
     const cheapest = paid.length ? Math.min(...paid) : null;
-    const { from, to } = state.lastParams || {};
-    let html = `<div class="res-head" id="res-head">
-      <div class="res-sum">${loaded < total ? `Recherche… ${loaded}/${total} jours · ` : ''}<b>${plural(all.length, 'trajet', 'trajets')}</b>`
+    const q = state.lastQuery;
+    const leg = q.legs.find(l => l.dir === state.dir) || q.legs[0];
+
+    let html = `<div class="res-head" id="res-head">`;
+    if (state.rt) {
+      html += `<div class="dir-tabs" role="group" aria-label="Sens du trajet">${dirs.map(dir => {
+        const l = q.legs.find(x => x.dir === dir);
+        const n = state.days.filter(d => d.dir === dir).flatMap(d => d.itineraries || []).length;
+        return `<button class="dir-tab" type="button" data-dir="${dir}" aria-pressed="${state.dir === dir}">
+          <b>${dir === 'out' ? 'Aller' : 'Retour'} · ${plural(n, 'trajet', 'trajets')}</b><small>${esc(l.fromName)} → ${esc(l.toName)}</small></button>`;
+      }).join('')}</div>`;
+    }
+    html += `<div class="res-sum">${loaded < total ? `Recherche… ${loaded}/${total} jours · ` : ''}<b>${plural(all.length, 'trajet', 'trajets')}</b>`
       + (all.length ? ` · <b>${freeN}</b> 100 % gratuit${freeN > 1 ? 's' : ''}${cheapest != null ? ` · avec TER dès ${nf.format(cheapest)} €` : ''}` : '')
-      + `<small>${esc(nameOf($('#s-from')) || from || '')} → ${esc(nameOf($('#s-to')) || to || '')}</small></div>
-      <div class="res-tools">
-        <div class="seg sm" id="sort" role="group" aria-label="Trier par">${[['dep', 'Départ'], ['dur', 'Durée'], ['price', 'Prix']]
-          .map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${state.sort === v}">${l}</button>`).join('')}</div>
+      + `<small>${esc(leg.fromName)} → ${esc(leg.toName)}</small></div>
+      <div class="res-tools">${mapBtn()}
         <button class="btn ghost sm" type="button" id="btn-share">${ICON.share}<span>Partager</span></button>
       </div>
-      <label class="switch sm"><input type="checkbox" id="free-only"${state.freeOnly ? ' checked' : ''}><span class="track"></span><span>100 % gratuits seulement</span></label>
-      ${loaded < total ? `<div class="progress"><i style="width:${Math.round(loaded / total * 100)}%"></i></div>` : ''}
-    </div>`;
+      <div class="res-opts">
+        <div class="seg" id="sort" role="group" aria-label="Trier par">${[['dep', 'Départ'], ['dur', 'Durée'], ['price', 'Prix']]
+          .map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${state.sort === v}">${l}</button>`).join('')}</div>
+        <label class="switch"><input type="checkbox" id="free-only"${state.freeOnly ? ' checked' : ''}><span class="track"></span><span>100 % gratuits</span></label>
+      </div>`;
+    if (state.rt && state.sel.out && state.sel.ret) {
+      const a = findTrip(state.sel.out), r = findTrip(state.sel.ret);
+      if (a && r) {
+        const sum = a.cost_eur + r.cost_eur;
+        html += `<div class="rt-total">Aller-retour sélectionné : aller ${esc(a.departure)} → ${esc(a.arrival)}, retour ${esc(r.departure)} → ${esc(r.arrival)} · <b>${sum === 0 ? 'gratuit' : `≈ ${nf.format(sum)} €`}</b></div>`;
+      }
+    }
+    if (loaded < total) html += `<div class="progress"><i style="width:${Math.round(loaded / total * 100)}%"></i></div>`;
+    html += '</div>';
 
-    for (const d of state.days) {
+    for (const d of shown) {
       const list = d.loading ? [] : dayTrips(d);
       html += `<h3 class="day"><span>${fmtDay(d.date)}</span><small>${d.loading ? 'recherche…' : plural(list.length, 'trajet', 'trajets')}</small></h3>`;
       if (d.loading) { html += skeleton(2); continue; }
@@ -535,30 +669,30 @@
       if (d.notice) html += `<p class="notice">${esc(d.notice)}</p>`;
       if (list.length) html += `<ul class="trips">${list.map(x => tripRow(x.it, x.key)).join('')}</ul>`;
       else if (!d.notice) html += `<p class="none">${state.freeOnly && (d.itineraries || []).length ? 'Pas de trajet 100 % gratuit ce jour-là.' : 'Aucun trajet ce jour-là.'}</p>`;
-      if (d.hidden_night) html += `<p class="none">+ ${plural(d.hidden_night, 'trajet de nuit masqué', 'trajets de nuit masqués')} (option « Trajets de nuit »).</p>`;
+      if (d.hidden_night) html += `<p class="none">+ ${plural(d.hidden_night, 'trajet de nuit masqué', 'trajets de nuit masqués')} (filtre « Trajets de nuit »).</p>`;
     }
-    if (loaded === total && !all.length) {
-      html += `<div class="empty"><h2>Pas de TGV Max sur cette période</h2><p>Essaie d'autres dates, d'autoriser une correspondance de plus, d'activer le complément TER ou les trajets de nuit (dans Options).</p></div>`;
+    if (shown.every(d => !d.loading) && !all.length) {
+      html += `<div class="empty"><h2>Pas de train Max sur cette période</h2><p>Essaie d'autres dates, d'autoriser une correspondance de plus, d'activer le complément TER ou les trajets de nuit (bouton « Modifier »).</p></div>`;
     }
     box.innerHTML = html;
     box.style.setProperty('--rh', `${$('#res-head').offsetHeight}px`);
   }
-
-  const nameOf = input => input.value.trim();
 
   function skeleton(n) {
     return Array.from({ length: n }, () => '<div class="skel" aria-hidden="true"><div><i></i><i></i></div><div><i></i><i></i></div><div><i></i></div></div>').join('');
   }
 
   function tripRow(it, key) {
-    const sel = key === state.selKey;
+    const sel = key === state.sel[state.dir];
     const first = it.legs[0], last = it.legs[it.legs.length - 1];
     const via = it.legs.slice(0, -1).map(l => l.to_name);
     const nconn = it.legs.length - 1;
     const meta = [fmtDur(it.duration_min), nconn ? plural(nconn, 'correspondance', 'correspondances') : 'direct'];
     if (via.length) meta.push(`via ${via.join(', ')}`);
-    const badges = (it.paid ? '<em class="b ter">+ TER</em>' : '') + (it.nocturnal ? `<em class="b night">${ICON.moon}Nuit</em>` : '');
-    return `<li class="trip${sel ? ' is-sel' : ''}" data-key="${key}">
+    const ic = it.legs.some(l => l.free && l.mode === 'Intercités');
+    const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
+      + (it.nocturnal ? `<em class="b night">${ICON.moon}Nuit</em>` : '');
+    return `<li class="trip${sel ? ' is-sel' : ''}" data-key="${esc(key)}">
       <button class="trip-hit" type="button" aria-expanded="${sel}">
         <span class="t-times"><b>${esc(it.departure)}</b><span>${esc(it.arrival)}${it.arrival_day ? `<sup>+${it.arrival_day}</sup>` : ''}</span></span>
         <span class="t-main">
@@ -587,7 +721,7 @@
       const dur = l.duration_min ?? (absMin(l.arr, l.arr_day) - absMin(l.dep, l.dep_day));
       let body;
       if (l.free) {
-        body = `<div class="s-title"><b>TGV Max ${esc(l.train)}</b><em class="b free">0 €</em></div>
+        body = `<div class="s-title"><b>${esc(l.mode)} ${esc(l.train)}</b><em class="b free">Max · 0 €</em></div>
           <div class="s-sub">${fmtDur(dur)} · 1 réservation Max</div>`;
       } else {
         const p = l.price || {};
@@ -596,10 +730,10 @@
         body = `<div class="s-title"><b>${esc(l.mode)}</b><em class="b paid">${fmtPrice(p.price)}</em></div>
           <div class="s-sub">${fmtDur(dur)}${l.transfers ? ` · ${plural(l.transfers, 'correspondance', 'correspondances')}` : ''}</div>
           ${steps}
-          <div class="s-note">Estimation : ${esc(p.label || '')}${p.distance_km ? ` · ${p.distance_km} km` : ''}</div>`;
+          <div class="s-note">Estimation : ${p.base ? `tarif normal ≈ ${nf.format(p.base)} € · ` : ''}${esc(p.label || '')}. Les promos affichées par SNCF ne se cumulent pas avec les cartes.</div>`;
       }
       h += `<li class="leg${l.free ? '' : ' paid'}"><span class="s-time"></span><span class="s-node"></span><div class="s-body">${body}
-        <a class="link" href="${esc(l.book_url)}" target="_blank" rel="noopener">Réserver sur SNCF Connect ${ICON.ext}</a></div></li>`;
+        <a class="book" href="${esc(l.book_url)}" target="_blank" rel="noopener">Voir ce train sur SNCF Connect ${ICON.ext}</a></div></li>`;
     });
     const last = it.legs[it.legs.length - 1];
     h += `<li class="stop last"><span class="s-time">${esc(last.arr)}${last.arr_day ? `<sup>+${last.arr_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(last.to_name)}<small>arrivée</small></span></li>`;
@@ -607,23 +741,33 @@
   }
 
   function select(key, scroll = true) {
-    state.selKey = state.selKey === key ? null : key;
-    state.current = state.selKey ? findTrip(state.selKey) : null;
+    const dir = key.split('|')[0];
+    state.sel[dir] = state.sel[dir] === key ? null : key;
+    state.current = state.sel[state.dir] ? findTrip(state.sel[state.dir]) : null;
     renderResults();
     if (state.current) {
-      drawItinerary(state.current);
+      drawCurrent();
       if (scroll) $(`.trip[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } else clearMap();
   }
+  function setDir(dir) {
+    state.dir = dir;
+    state.current = state.sel[dir] ? findTrip(state.sel[dir]) : null;
+    renderResults();
+    drawCurrent();
+  }
 
-  const EXAMPLES = [['Paris', 'paris', 'Lyon', 'lyon'], ['Paris', 'paris', 'Bordeaux', 'bordeaux'], ['Lille', 'lille', 'Marseille', 'marseille'], ['Paris', 'paris', 'Annecy', 'annecy']];
-  function emptyHTML() {
-    return `<div class="empty">
-      <h2>Où aller à 0 € ?</h2>
-      <p>Choisis un départ, une arrivée et des dates : on cherche les TGV Max gratuits, même avec correspondances, et on complète en TER quand la gare n'a pas de TGV Max.</p>
-      <div class="examples"><span class="lbl-sm">Essayer pour demain</span>
-        ${EXAMPLES.map(([f, fl, t, tl], i) => `<button class="example" type="button" data-ex="${i}">${esc(f)} → ${esc(t)} <span>voir les trajets</span></button>`).join('')}
-      </div></div>`;
+  /* ================================================================== accueil : idées */
+  const EXAMPLES = [['Paris', 'paris', 'Lyon', 'lyon'], ['Paris', 'paris', 'Bordeaux', 'bordeaux'], ['Lille', 'lille', 'Marseille', 'marseille'],
+    ['Paris', 'paris', 'Toulouse', 'toulouse'], ['Lyon', 'lyon', 'Montpellier', 'montpellier'], ['Paris', 'paris', 'Annecy', 'annecy']];
+  function renderIdeas() {
+    $('#ideas').innerHTML = `<h2>Idées pour demain</h2>
+      <div class="idea-list">${EXAMPLES.map(([f, , t], i) => `<button class="idea" type="button" data-ex="${i}"><b>${esc(f)} → ${esc(t)}</b><span>Voir les trains à 0 €</span></button>`).join('')}</div>
+      <div class="facts">
+        <div class="fact"><b>Correspondances recomposées</b>Deux trains Max qui s'enchaînent, même quand SNCF Connect ne les propose pas ensemble.</div>
+        <div class="fact"><b>TER pour finir</b>Pour les gares sans TGV : le TER depuis la gare Max la plus proche, prix estimé selon ta carte régionale.</div>
+        <div class="fact"><b>Aller-retour</b>« Ajouter le retour » pour chercher les deux sens d'un coup, sur des plages de dates.</div>
+      </div>`;
   }
 
   /* ================================================================== explorer */
@@ -632,15 +776,15 @@
     const from = stationValue(input), date = $('#e-date').value;
     if (!from) { toast('Indique une gare de départ.'); input.focus(); return; }
     const box = $('#explore-results');
-    box.innerHTML = skeleton(4);
+    box.innerHTML = `<div class="trips">${skeleton(4)}</div>`;
     $('#btn-explore').disabled = true;
-    if (isMobile()) { document.activeElement?.blur(); setSheet('half'); }
+    document.activeElement?.blur();
     try {
-      state.explore = await api('/api/explore', { from, date, maxconn: segVal('e_maxconn'), ...profileParams() });
+      state.explore = await api('/api/explore', { from, date, maxconn: opts.e_maxconn, ...profileParams() });
       state.exFilter = '';
       renderExplore();
-      drawExplore(state.explore);
-      if (isMobile()) $('#scroll').scrollTo({ top: $('#explore-results').offsetTop, behavior: 'smooth' });
+      refreshView();
+      if (isMobile()) scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) { box.innerHTML = `<p class="notice err">${esc(e.message)}</p>`; }
     $('#btn-explore').disabled = false;
   }
@@ -650,8 +794,9 @@
     const direct = data.destinations.filter(d => !d.nconn).length;
     box.innerHTML = `<div class="res-head">
         <div class="res-sum"><b>${plural(direct, 'gare', 'gares')} en direct</b> · ${plural(data.destinations.length - direct, 'avec correspondance', 'avec correspondance')}
-          <small>Depuis ${esc(data.origin.name)}, ${fmtDay(data.date)} · touche une gare pour voir les trajets</small></div>
-        <input class="input sm ex-filter" id="ex-filter" type="search" placeholder="Filtrer les gares…" aria-label="Filtrer les gares">
+          <small>Depuis ${esc(data.origin.name)}, ${fmtDay(data.date)} · touche une gare pour voir les trains</small></div>
+        <div class="res-tools">${mapBtn()}</div>
+        <input class="ex-filter" id="ex-filter" type="search" placeholder="Filtrer les gares…" aria-label="Filtrer les gares">
       </div>
       ${data.notice ? `<p class="notice">${esc(data.notice)}</p>` : ''}
       <ul class="trips" id="ex-list"></ul>`;
@@ -674,6 +819,7 @@
     setStation($('#s-to'), d.name, d.label);
     setDates(state.explore.date, state.explore.date);   // même jour que l'exploration
     $('#s-start').value = ''; $('#s-end').value = '';
+    setRT(false);
     showTab('search');
     runSearch();
   }
@@ -747,64 +893,32 @@
     else if (state.tab === 'explore' && state.explore) runExplore();
   }
 
-  /* ================================================================== onglets + panneau mobile */
+  /* ================================================================== onglets */
   function showTab(t) {
     state.tab = t;
     $$('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
     for (const v of ['search', 'explore', 'favs']) $('#view-' + v).hidden = v !== t;
-    $('#scroll').scrollTop = 0;
-    if (t === 'search') { if (state.current) drawItinerary(state.current); else clearMap(); }
-    else if (t === 'explore') { if (state.explore) drawExplore(state.explore); else clearMap(); }
-    else clearMap();
-  }
-
-  function setSheet(s) {
-    const p = $('#panel');
-    const changed = p.dataset.sheet !== s;
-    p.dataset.sheet = s;
-    p.style.removeProperty('--sheet-h');
-    // la hauteur du panneau change la zone visible de la carte : on recadre après l'animation
-    if (changed && isMobile() && MAP.lastFit && MAP.route?.getLayers().length) setTimeout(() => fitTo(...MAP.lastFit), 320);
-  }
-  function initSheet() {
-    const panel = $('#panel'), handle = $('#sheet-handle');
-    let startY = 0, startH = 0, moved = false, dragging = false;
-    handle.addEventListener('pointerdown', e => {
-      if (!isMobile()) return;
-      dragging = true; moved = false; startY = e.clientY; startH = panel.getBoundingClientRect().height;
-      panel.classList.add('dragging');
-      handle.setPointerCapture(e.pointerId);
-    });
-    handle.addEventListener('pointermove', e => {
-      if (!dragging) return;
-      const dy = startY - e.clientY;
-      if (Math.abs(dy) > 6) moved = true;
-      panel.style.setProperty('--sheet-h', `${Math.max(120, Math.min(innerHeight - 40, startH + dy))}px`);
-    });
-    const end = () => {
-      if (!dragging) return;
-      dragging = false;
-      panel.classList.remove('dragging');
-      if (!moved) return;
-      const h = panel.getBoundingClientRect().height;
-      const snaps = { peek: 196, half: innerHeight * 0.58, full: innerHeight - 48 };
-      const best = Object.entries(snaps).sort((a, b) => Math.abs(a[1] - h) - Math.abs(b[1] - h))[0][0];
-      setSheet(best);
-    };
-    handle.addEventListener('pointerup', end);
-    handle.addEventListener('pointercancel', end);
-    handle.addEventListener('click', () => {
-      if (moved) { moved = false; return; }
-      setSheet({ peek: 'half', half: 'full', full: 'peek' }[panel.dataset.sheet] || 'half');
-    });
+    refreshView();
+    if (!isMobile()) $('#panel').scrollTop = 0;
   }
 
   /* ================================================================== événements */
+  function swapOD() {
+    const a = $('#s-from'), b = $('#s-to');
+    const [av, al] = [a.value, a.dataset.label];
+    setStation(a, b.value, b.dataset.label);
+    setStation(b, av, al);
+    $('#btn-swap').classList.toggle('spin');
+    syncFav();
+    if (stationValue(a) && stationValue(b)) runSearch();   // relance directement dans l'autre sens
+  }
+
   function bindUI() {
     $('#btn-swap').innerHTML = ICON.swap;
     $('#btn-search').innerHTML = `${ICON.search}<span>Rechercher</span>`;
     $('#btn-fav').innerHTML = ICON.star;
     $$('[data-locate]').forEach(b => { b.innerHTML = ICON.locate; b.addEventListener('click', () => locate($('#' + b.dataset.locate))); });
+    $$('.od-row>label').forEach(l => l.addEventListener('click', () => $('#' + l.htmlFor)?.focus()));
 
     attachAC($('#s-from'), 'origin');
     attachAC($('#s-to'), 'dest');
@@ -818,60 +932,60 @@
       n.focus(); showTab(n.dataset.tab);
     });
 
-    $$('.seg[data-name]').forEach(seg => seg.addEventListener('click', e => {
-      const b = e.target.closest('button');
-      if (!b) return;
-      setSeg(seg.dataset.name, b.dataset.v);
-      updateOptsSummary();
+    $$('.pill[data-pill]').forEach(b => b.addEventListener('click', () => clickPill(b.dataset.pill)));
+    $('#btn-swap').addEventListener('click', swapOD);
+    $$('.chip[data-quick]').forEach(c => c.addEventListener('click', () => {
+      setDates(...quickRange(c.dataset.quick));
+      if (state.rt && $('#r-fd').value < $('#s-td').value) setRT(true, addDays($('#s-td').value, 1));
     }));
-    $('#s-ter').addEventListener('change', updateOptsSummary);
-    $('#s-nights').addEventListener('change', updateOptsSummary);
-
-    $('#btn-swap').addEventListener('click', () => {
-      const a = $('#s-from'), b = $('#s-to');
-      const [av, al] = [a.value, a.dataset.label];
-      setStation(a, b.value, b.dataset.label);
-      setStation(b, av, al);
-      const s = $('#btn-swap');
-      s.classList.toggle('spin');
-      syncFav();
-      if (stationValue(a) && stationValue(b)) runSearch();   // relance directement dans l'autre sens
-    });
-    $$('.chip[data-quick]').forEach(c => c.addEventListener('click', () => setDates(...quickRange(c.dataset.quick))));
     $('#s-fd').addEventListener('change', () => {
       if (!$('#s-td').value || $('#s-td').value < $('#s-fd').value) $('#s-td').value = $('#s-fd').value;
       markQuick();
     });
     $('#s-td').addEventListener('change', markQuick);
+    $('#r-fd').addEventListener('change', () => { if (!$('#r-td').value || $('#r-td').value < $('#r-fd').value) $('#r-td').value = $('#r-fd').value; });
+    $('#btn-add-ret').addEventListener('click', () => { setRT(true); $('#r-fd').focus(); });
+    $('#btn-rm-ret').addEventListener('click', () => setRT(false));
 
     $('#form-search').addEventListener('submit', e => { e.preventDefault(); runSearch(); });
     $('#form-explore').addEventListener('submit', e => { e.preventDefault(); runExplore(); });
     $('#btn-fav').addEventListener('click', toggleFav);
+    $('#search-sum').addEventListener('click', e => {
+      if (e.target.closest('#btn-edit')) { state.editing = true; refreshView(false); $('#s-from').focus(); }
+    });
+
+    // délégation : boutons carte (résultats et explorer)
+    document.addEventListener('click', e => { if (e.target.closest('[data-map-toggle]')) setMapOn(!mapOn); });
 
     // délégation : résultats
     $('#results').addEventListener('click', async e => {
       const hit = e.target.closest('.trip-hit');
       if (hit) { select(hit.closest('.trip').dataset.key); return; }
+      const dirB = e.target.closest('[data-dir]');
+      if (dirB) { setDir(dirB.dataset.dir); return; }
       const sortB = e.target.closest('#sort button');
       if (sortB) { state.sort = sortB.dataset.v; store.set('sort', state.sort); renderResults(); return; }
-      const ex = e.target.closest('[data-ex]');
-      if (ex) {
-        const [f, fl, t, tl] = EXAMPLES[Number(ex.dataset.ex)];
-        setStation($('#s-from'), f, fl); setStation($('#s-to'), t, tl);
-        setDates(...quickRange('tomorrow'));
-        runSearch();
-        return;
-      }
       if (e.target.closest('#btn-share')) {
         const url = shareURL();
         try {
-          if (navigator.share && isMobile()) await navigator.share({ title: 'TGV Max Planner', text: 'Regarde ces trajets TGV Max', url });
+          if (navigator.share && isMobile()) await navigator.share({ title: 'TGV Max Planner', text: 'Regarde ces trains à 0 €', url });
           else { await navigator.clipboard.writeText(url); toast('Lien copié : envoie-le à qui tu veux.'); }
         } catch { toast(url); }
       }
     });
     $('#results').addEventListener('change', e => {
       if (e.target.id === 'free-only') { state.freeOnly = e.target.checked; store.set('freeOnly', state.freeOnly); renderResults(); }
+    });
+    $('#ideas').addEventListener('click', e => {
+      const ex = e.target.closest('[data-ex]');
+      if (!ex) return;
+      const [f, fl, t, tl] = EXAMPLES[Number(ex.dataset.ex)];
+      setStation($('#s-from'), f, fl); setStation($('#s-to'), t, tl);
+      setDates(...quickRange('tomorrow'));
+      $('#s-start').value = ''; $('#s-end').value = '';
+      setRT(false);
+      showTab('search');
+      runSearch();
     });
     $('#explore-results').addEventListener('input', e => {
       if (e.target.id === 'ex-filter') { state.exFilter = e.target.value; renderExploreList(); }
@@ -906,26 +1020,27 @@
       toast(`Thème ${{ auto: 'automatique (comme ton appareil)', light: 'clair', dark: 'sombre' }[theme]}.`);
     });
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (theme === 'auto') mapTheme(); });
+    let rt;
+    addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => refreshView(), 200); });
   }
 
   /* ================================================================== démarrage */
   async function init() {
-    initMap();
     applyTheme();
     bindUI();
-    initSheet();
     renderProfileChip();
-    updateOptsSummary();
+    renderPills();
+    renderIdeas();
     syncFav();
     renderFavs();
-    renderResults();
+    refreshView();
 
     try { state.meta = await api('/api/meta'); }
     catch { $('#data-status').textContent = 'Données SNCF indisponibles pour le moment.'; return; }
     const { start, end } = state.meta.dates;
     if (start) {
-      $('#data-status').textContent = `Places TGV Max du ${fmtShort(start)} au ${fmtShort(end)}`;
-      for (const s of ['#s-fd', '#s-td', '#e-date']) { $(s).min = start; $(s).max = end; }
+      $('#data-status').textContent = `Places Max du ${fmtShort(start)} au ${fmtShort(end)} · mises à jour chaque jour`;
+      for (const s of ['#s-fd', '#s-td', '#r-fd', '#r-td', '#e-date']) { $(s).min = start; $(s).max = end; }
     }
     setDates(...quickRange('tomorrow'));
     $('#e-date').value = clampDate(todayISO());
@@ -936,7 +1051,7 @@
       runSearch();
     } else {
       const last = store.get('last', null);
-      if (last) applyState({ ...last, du: null, au: null, h1: '', h2: '' });
+      if (last) applyState({ ...last, du: null, au: null, h1: '', h2: '', r: null });
       else { setStation($('#s-from'), 'Paris', 'paris'); }
       setStation($('#e-from'), $('#s-from').value || 'Paris', $('#s-from').dataset.label || 'paris');
     }

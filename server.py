@@ -38,7 +38,7 @@ import regions
 import tgvmax_core as core
 from navitia import navitia
 
-VERSION = "2.0"
+VERSION = "3.0"
 WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web"))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
@@ -149,12 +149,25 @@ def booking_url(o_label, o_geo, d_label, d_geo, date, hhmm):
 
 
 # ======================================================================= itinéraires
+def train_mode(axe):
+    """Axe open data -> type de train (« IC ARO », « IC SRO » : Intercités ; « IC NUIT » : de nuit)."""
+    axe = (axe or "").upper()
+    if axe == "IC NUIT":
+        return "Intercités de nuit"
+    if axe.startswith("IC"):
+        return "Intercités"
+    if axe.startswith("AUTOCAR"):
+        return "Car SNCF"
+    return "TGV INOUI"
+
+
 def max_leg(edge, date, geo):
     o, d = edge["o"], edge["d"]
     og, dg = geo.get(o), geo.get(d)
     dep = core.min_to_hhmm(edge["dep"])
     return {
-        "free": True, "mode": "TGV Max", "train": edge["train"], "axe": edge.get("axe", ""),
+        "free": True, "mode": train_mode(edge.get("axe", "")),
+        "train": edge["train"], "axe": edge.get("axe", ""),
         "entity": edge.get("entity", ""),
         "from": o, "to": d, "from_name": display_name(o, og), "to_name": display_name(d, dg),
         "dep": dep, "arr": core.min_to_hhmm(edge["arr"]),
@@ -172,9 +185,35 @@ def path_nocturnal(path):
     return any(core.night_overlap(a["arr"], b["dep"]) for a, b in zip(path, path[1:]))
 
 
+def dest_place(dst, targets, stations):
+    """Lieu d'arrivée pour le calcul TER. Si l'arrivée est une gare Max (« Lyon » -> LYON (intramuros)),
+    on géocode ce libellé (surcharges comprises) plutôt que le texte libre, que l'API SNCF peut
+    confondre (« Lyon » -> « Paris - Gare de Lyon »)."""
+    for t in targets:
+        if t in stations:
+            g = navitia.geocode(t)
+            if g:
+                return g
+    return navitia.geocode(dst)
+
+
+def drop_dominated(itins):
+    """Retire un trajet quand un autre part au plus tôt pareil, arrive au plus tard pareil et coûte au plus
+    autant (ex. Max + TER payant alors qu'un TGV Max direct part après et arrive avant)."""
+    def beats(y, x):
+        no_worse = y["_dep"] >= x["_dep"] and y["_arr"] <= x["_arr"] and y["cost_eur"] <= x["cost_eur"] \
+            and len(y["legs"]) <= len(x["legs"])
+        better = y["_dep"] > x["_dep"] or y["_arr"] < x["_arr"] or y["cost_eur"] < x["cost_eur"] \
+            or len(y["legs"]) < len(x["legs"])
+        return no_worse and better
+
+    return [x for x in itins if not any(beats(y, x) for y in itins)]
+
+
 def itinerary_from_path(path, date, geo):
     legs = [max_leg(e, date, geo) for e in path]
     return {
+        "_dep": path[0]["dep"], "_arr": path[-1]["arr"],
         "type": "max", "paid": False, "cost_eur": 0, "nresa": len(legs),
         "departure": legs[0]["dep"], "arrival": legs[-1]["arr"],
         "arrival_day": path[-1]["arr"] // 1440,
@@ -209,35 +248,58 @@ def search_one_day(src, dst, date, opts):
 
     # 2) compléments TER : gares atteignables en Max les plus proches de la destination
     ter_itins = []
-    dest_geo = navitia.geocode(dst) if opts["ter"] else None
+    dest_geo = dest_place(dst, targets, stations) if opts["ter"] else None
     if dest_geo:
         best = core.reachable(edges, origins, max_conn=opts["maxconn"], **win)
         tset = set(targets)
-        frontier = {s: pp for s, pp in best.items() if s not in tset}
-        fgeo = geocode_many(list(frontier))
-        ranked = []
-        for s, (_, path) in frontier.items():
-            g = fgeo.get(s)
-            if g:
-                km = core.haversine_km(g["lat"], g["lon"], dest_geo["lat"], dest_geo["lon"])
-                if km <= config.TER_MAX_DISTANCE_KM:
-                    ranked.append((km, s, path, g))
-        ranked.sort(key=lambda x: x[0])
+        frontier = [s for s in best if s not in tset]
+        fgeo = geocode_many(frontier + list(origins))
 
-        def tail(item):
-            _, s, path, g = item
+        def km_to_dest(s):
+            g = fgeo.get(s) or navitia._cache.get(s)
+            return core.haversine_km(g["lat"], g["lon"], dest_geo["lat"], dest_geo["lon"]) if g else None
+
+        o_km = min((k for k in map(km_to_dest, origins) if k is not None), default=None)
+        ranked = []
+        for s in frontier:
+            km = km_to_dest(s)
+            # une gare-relais doit rapprocher de la destination (sinon ce n'est qu'un détour)
+            if km is not None and km <= config.TER_MAX_DISTANCE_KM and (o_km is None or km < o_km):
+                ranked.append((km, s))
+        ranked.sort()
+
+        # Pour les relais les plus proches, plusieurs arrivées dans la journée (pas seulement la 1re).
+        jobs = []
+        for rank, (km, s) in enumerate(ranked[:config.TER_CANDIDATES]):
+            quota = config.TER_ARRIVALS_PER_RELAY[min(rank, len(config.TER_ARRIVALS_PER_RELAY) - 1)]
+            paths = core.search(edges, origins, [s], max_conn=opts["maxconn"], max_results=40, **win)
+            kept, last_arr = [], None
+            for p in sorted(paths, key=lambda p: (p[-1]["arr"], -p[0]["dep"])):
+                # pas de relais atteint en passant par la destination ou par un relais plus proche
+                if any(e["d"] in tset or (km_to_dest(e["d"]) or 1e9) < km for e in p[:-1]):
+                    continue
+                if last_arr is None or p[-1]["arr"] - last_arr >= config.TER_ARRIVAL_SPACING_MIN:
+                    kept.append(p)
+                    last_arr = p[-1]["arr"]
+                if len(kept) >= quota:
+                    break
+            jobs += [(s, fgeo[s], p) for p in kept]
+
+        def tail(job):
+            s, g, path = job
             ready = path[-1]["arr"] + core.min_connection(s)       # minutes depuis le jour J (peut dépasser 1440)
             jdate = shift(date, ready // 1440)                      # après un train de nuit : le lendemain !
             if not navitia.date_in_range(jdate):
-                return item, None, None, None
+                return job, None, None
             jr = navitia.journey(g["id"], dest_geo["id"], jdate, core.min_to_hhmm(ready),
                                  max_transfers=opts["ter_transfers"])
-            return item, jr, ready, jdate
+            return job, jr, ready
 
-        for (_, s, path, g), jr, ready, jdate in IO_POOL.map(tail, ranked[:config.TER_CANDIDATES]):
-            if jr and jr["duration_min"] <= config.TER_MAX_TAIL_MIN:
-                ter_itins.append((path, s, g, jr, ready))
-                labels.update(e for leg in path for e in (leg["o"], leg["d"]))
+        for (s, g, path), jr, ready in IO_POOL.map(tail, jobs):
+            if not jr or jr["duration_min"] > config.TER_MAX_TAIL_MIN:
+                continue
+            ter_itins.append((path, s, g, jr, ready))
+            labels.update(e for leg in path for e in (leg["o"], leg["d"]))
 
     geo = geocode_many(list(labels))
     out = [dict(itinerary_from_path(p, date, geo)) for p in max_paths]
@@ -268,6 +330,7 @@ def search_one_day(src, dst, date, opts):
                                     jr["departure"] or core.min_to_hhmm(ready)),
         })
         out.append({
+            "_dep": path[0]["dep"], "_arr": ter_arr,
             "type": "max+ter", "paid": True, "cost_eur": price["price"], "nresa": len(path),
             "departure": legs[0]["dep"], "arrival": jr["arrival"], "arrival_day": ter_arr // 1440,
             "duration_min": ter_arr - path[0]["dep"],
@@ -279,6 +342,9 @@ def search_one_day(src, dst, date, opts):
     total = len(out)
     if not opts["nights"]:
         out = [it for it in out if not it["nocturnal"]]
+    out = drop_dominated(out)
+    for it in out:
+        it.pop("_dep"); it.pop("_arr")
     out.sort(key=lambda it: (it["paid"], it["departure"]))
     res = {"itineraries": out}
     if total and not out:

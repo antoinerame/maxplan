@@ -9,17 +9,31 @@ tronçon par tronçon, puis chaque tronçon reçoit la réduction qui s'y appliq
 Le prix réel reste celui affiché par SNCF Connect.
 """
 
+import math
+
 import regions
 
-RATE_PER_KM = 0.17          # €/km, ordre de grandeur d'un billet TER plein tarif
 MIN_FARE = 2.0              # prix plancher d'un trajet
-ROUND = 0.5
 GRANDES_LIGNES = ("tgv", "inoui", "intercit", "ouigo", "lyria", "eurostar", "ice ")
 SUBSCRIPTIONS = ("jeune", "senior", "none")
 
 
-def _round(x):
-    return round(x / ROUND) * ROUND
+def normal_fare(km):
+    """Tarif normal TER (plein tarif 2de classe) estimé pour un billet de `km` km.
+    Forme « a + b × distance » des barèmes TER, dégressive avec la distance ; calée sur des prix
+    publiés (Lyon–Saint-Étienne, ~50 km à vol d'oiseau : 13,80 € plein tarif en 2025)."""
+    km = max(0.0, km)
+    fare = 2.4 + 0.228 * min(km, 64)
+    if km > 64:
+        fare += 0.20 * (min(km, 150) - 64)
+    if km > 150:
+        fare += 0.165 * (km - 150)
+    return max(MIN_FARE, fare)
+
+
+def _up(x):
+    """Arrondi au décime supérieur, comme les réductions TER (CGV TER)."""
+    return math.ceil(round(x * 10, 6)) / 10
 
 
 def _is_grande_ligne(mode):
@@ -29,10 +43,12 @@ def _is_grande_ligne(mode):
 
 def estimate(sections, prefs):
     """sections : [{mode, dist_km, lat, lon}] ; prefs : {"sub": ..., "ter": {code_region: pct}}."""
-    base_sum = disc_sum = 0.0
+    # Un billet TER se paie sur la distance totale (tarif dégressif) ; chaque tronçon garde la
+    # réduction de SA région, pondérée par sa longueur. Les réductions s'appliquent au tarif normal.
+    km_sum = disc_km = 0.0
     parts = []
     for s in sections:
-        base = max(0.0, s.get("dist_km", 0)) * RATE_PER_KM
+        km = max(0.0, s.get("dist_km", 0))
         if _is_grande_ligne(s.get("mode")):
             pct = 30 if prefs["sub"] in ("jeune", "senior") else 0
             parts.append({"kind": "gl", "mode": s.get("mode"), "pct": pct})
@@ -40,16 +56,16 @@ def estimate(sections, prefs):
             code = regions.locate(s.get("lat"), s.get("lon"))
             pct = int(prefs["ter"].get(code, 0)) if code else 0
             parts.append({"kind": "ter", "region": code, "pct": pct})
-        base_sum += base
-        disc_sum += base * (1 - pct / 100)
+        km_sum += km
+        disc_km += km * (1 - pct / 100)
 
-    if base_sum <= 0:
+    if km_sum <= 0:
         return {"price": 0, "base": 0, "discount_pct": 0, "label": "prix inconnu",
                 "regions": [], "distance_km": 0, "estimated": True}
 
-    ratio = disc_sum / base_sum                      # part restant à payer
-    base_total = max(MIN_FARE, base_sum)
-    price = 0.0 if ratio < 0.005 else max(0.5, _round(base_total * ratio))
+    ratio = disc_km / km_sum                         # part restant à payer
+    base_total = normal_fare(km_sum)
+    price = 0.0 if ratio < 0.005 else max(0.5, _up(base_total * ratio))
 
     # libellé lisible : réseaux + réductions appliquées
     labels, seen = [], set()
@@ -60,7 +76,7 @@ def estimate(sections, prefs):
         else:
             key = ("ter", p["region"], p["pct"])
             net = regions.REGIONS.get(p["region"], (None, "TER"))[1] if p["region"] else "TER"
-            txt = f"{net} −{p['pct']} %" if p["pct"] else f"{net} plein tarif"
+            txt = f"{net} −{p['pct']} % sur le tarif normal" if p["pct"] else f"{net} plein tarif"
         if key not in seen:
             seen.add(key)
             labels.append(txt)
@@ -73,7 +89,7 @@ def estimate(sections, prefs):
 
     return {
         "price": price,
-        "base": _round(base_total),
+        "base": _up(base_total),
         "discount_pct": round((1 - ratio) * 100),
         "label": " · ".join(labels),
         "regions": region_names,
