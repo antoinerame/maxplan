@@ -1151,7 +1151,7 @@
       const dt = noon(x.date), wd = dt.getDay(), h = hol(x.date);
       const cls = h ? 'hol' : (wd === 0 || wd === 6) ? 'we' : '';
       const tip = `${fmtDay(x.date)} : ${nf.format(x.pct)} % des trajets ouverts au Max (${nf.format(x.oui)} sur ${nf.format(x.total)})${h ? ` · ${h.name}` : ''}`;
-      return `<div class="nc-col ${cls}" title="${esc(tip)}"><span class="nc-val">${Math.round(x.pct)}</span><i style="height:${Math.max(2, x.pct / max * 100)}%"></i><b>${dt.getDate()}</b><em>${DAYS_S[wd][0].toUpperCase()}</em></div>`;
+      return `<div class="nc-col ${cls}" title="${esc(tip)}"><span class="nc-val">${Math.round(x.pct)}&#8239;%</span><i style="height:${Math.max(2, x.pct / max * 100)}%"></i><b>${dt.getDate()}</b><em>${DAYS_S[wd][0].toUpperCase()}</em></div>`;
     }).join('');
     // lecture automatique : jours ordinaires vs vacances, et effet de l'éloignement
     const avg = list => list.length ? list.reduce((a, x) => a + x.pct, 0) / list.length : null;

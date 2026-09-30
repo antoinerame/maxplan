@@ -667,3 +667,14 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 .tab{flex:none}
 @media (max-width:420px){.tab{padding:7px 10px;font-size:13.5px}.nc-col .nc-val,.nc-col em{display:none}}
 @media (max-width:420px){.nc-col:nth-child(even) b{visibility:hidden}}
+
+/* Infos sur grand écran : page plus large, fiches côte à côte */
+#view-infos .value-head{padding:10px 2px 14px}
+#view-infos .value-head p{margin-top:8px}
+@media (min-width:900px){
+  .app[data-tab="infos"][data-view="home"] .panel{max-width:1120px}
+  #view-infos{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;align-items:start}
+  #view-infos .value-head,#view-infos .info-card.live{grid-column:1/-1}
+  #view-infos .info-card{height:100%}
+  .nc-col .nc-val{font-size:10.5px;white-space:nowrap}
+}
