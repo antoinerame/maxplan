@@ -626,3 +626,9 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 .s-steps .walk{display:flex;align-items:center;gap:6px;color:var(--board-soft);font-style:italic}
 /* « Rentable ? » : fond léger derrière le nombre d'allers-retours */
 .value-row .wf:first-child{background:var(--surface-2);padding:6px 10px 5px}
+
+/* correspondances non garanties (billets séparés) */
+.b.sep{background:transparent;color:var(--board-urgent);box-shadow:inset 0 0 0 1.5px var(--board-urgent)}
+.s-name small .short{color:var(--board-urgent);font-weight:700}
+.sep-note{color:var(--board-text)}
+.sep-note b{color:var(--board-urgent)}

@@ -728,8 +728,10 @@
     if (via.length) meta.push(`via ${via.join(', ')}`);
     const ic = it.legs.some(l => l.free && l.mode === 'Intercités');
     const est = it.legs.some(l => l.estimated_schedule);
+    const margin = minMargin(it);
     const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
       + (est ? '<em class="b est">Horaire TER estimé</em>' : '')
+      + (it.legs.length > 1 ? `<em class="b sep" title="Chaque train se réserve à part : la correspondance n'est pas garantie">${margin != null && margin < 30 ? 'Correspondance courte · billets séparés' : 'Billets séparés'}</em>` : '')
       + (it.nocturnal ? `<em class="b night">${ICON.moon}Nuit</em>` : '');
     return `<li class="trip${sel ? ' is-sel' : ''}" data-key="${esc(key)}">
       <button class="trip-hit" type="button" aria-expanded="${sel}">
@@ -746,6 +748,15 @@
   }
 
   const absMin = (hm, day) => toMin(hm) + (day || 0) * 1440;
+  // plus petite marge de correspondance entre deux billets (minutes), null si trajet direct
+  const minMargin = it => {
+    let m = null;
+    for (let i = 1; i < it.legs.length; i++) {
+      const w = absMin(it.legs[i].dep, it.legs[i].dep_day) - absMin(it.legs[i - 1].arr, it.legs[i - 1].arr_day);
+      m = m == null ? w : Math.min(m, w);
+    }
+    return m;
+  };
 
   function detailHTML(it) {
     let h = '<div class="detail"><ol class="line">';
@@ -756,7 +767,7 @@
         const wait = absMin(l.dep, l.dep_day) - absMin(prev.arr, prev.arr_day);
         const move = !samePlace(prev.to_name, l.from_name)
           ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${/^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? ' (métro ou RER)' : ''}</em>` : '';
-        sub = `<small>arrivée ${esc(prev.arr)} · correspondance ${fmtDur(Math.max(0, wait))}</small>${move}`;
+        sub = `<small>arrivée ${esc(prev.arr)} · correspondance ${fmtDur(Math.max(0, wait))}, <span class="${wait < 30 ? 'short' : ''}">non garantie${wait < 30 ? ' (marge courte)' : ''}</span></small>${move}`;
       }
       h += `<li class="stop${i === 0 ? ' first' : ''}"><span class="s-time">${esc(l.dep)}${l.dep_day ? `<sup>+${l.dep_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(l.from_name)}${sub}</span></li>`;
       const dur = l.duration_min ?? (absMin(l.arr, l.arr_day) - absMin(l.dep, l.dep_day));
@@ -785,7 +796,10 @@
     });
     const last = it.legs[it.legs.length - 1];
     h += `<li class="stop last"><span class="s-time">${esc(last.arr)}${last.arr_day ? `<sup>+${last.arr_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(last.to_name)}<small>arrivée</small></span></li>`;
-    return h + `</ol><p class="book-note">Le lien SNCF Connect n'ouvre pas toujours le bon trajet (ça dépend de leur site) : si besoin, cherche le train à la main avec son numéro et son heure de départ.</p></div>`;
+    const sepNote = it.legs.length > 1
+      ? `<p class="book-note sep-note"><b>Correspondances non garanties :</b> chaque train se réserve à part. Si le premier a du retard, le suivant ne l'attendra pas et ton billet n'est pas reporté automatiquement comme pour un trajet vendu d'un bloc par la SNCF. Garde de la marge, surtout pour le dernier train de la journée.</p>` : '';
+    return h + `</ol>${sepNote}<p class="book-note">Le lien SNCF Connect
+ n'ouvre pas toujours le bon trajet (ça dépend de leur site) : si besoin, cherche le train à la main avec son numéro et son heure de départ.</p></div>`;
 
   }
 

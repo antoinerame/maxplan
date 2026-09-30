@@ -38,7 +38,7 @@
     <section>
       <h2>Ce que fait le site, et ses limites</h2>
       <ul>
-        <li>Il cherche les trains ouverts à 0 € aux abonnés Max Jeune et Max Senior, y compris en enchaînant plusieurs trains, et propose un complément en TER.</li>
+        <li>Il cherche les trains ouverts à 0 € aux abonnés Max Jeune et Max Senior, y compris en enchaînant plusieurs trains, et propose un complément en TER ou en car. Ces trajets assemblent des <strong>billets séparés</strong> : les correspondances ne sont pas garanties par la SNCF.</li>
         <li>Les disponibilités proviennent d'un jeu de données <strong>mis à jour une fois par jour</strong> : une place affichée peut être partie entre-temps. Vérifie toujours sur SNCF Connect.</li>
         <li>Les <strong>prix TER sont des estimations</strong> (tarif normal estimé selon la distance, réductions déclarées dans ton profil). Le prix réel est celui de SNCF Connect.</li>
         <li>Le site ne vend rien et ne réserve rien : les liens ouvrent la recherche correspondante sur SNCF Connect.</li>
@@ -76,7 +76,7 @@
         <li>Pour éviter les abus, le serveur garde en mémoire l'adresse IP des visiteurs pendant une minute (limite du nombre de recherches). Le site ne tient pas de journal des recherches.</li>
         <li>Le formulaire « Signaler » enregistre sur le serveur ton message, l'e-mail que tu choisis d'indiquer (facultatif) et la recherche affichée à l'écran. Ces messages servent uniquement à corriger et améliorer le site ; tu peux demander leur suppression par le même formulaire.</li>
         <li>Les gares et dates recherchées sont transmises
- à l'API SNCF pour calculer les trajets TER, sans aucune donnée qui t'identifie.</li>
+ à l'API SNCF seulement quand les horaires locaux ne suffisent pas (secours), sans aucune donnée qui t'identifie.</li>
         <li>Le trafic passe par Cloudflare (voir « Hébergement ») : comme tout intermédiaire réseau, Cloudflare voit ton adresse IP et les pages demandées, et peut les traiter aux États-Unis pour protéger le site, selon <a href="https://www.cloudflare.com/fr-fr/privacypolicy/" rel="noopener">sa politique de confidentialité</a>. Aucun cookie de mesure d'audience n'est activé.</li>
         <li>Ton navigateur charge le fond de carte depuis les serveurs d'Esri (server.arcgisonline.com), qui voient donc ton adresse IP, comme pour tout site affichant une carte.</li>
       </ul>
