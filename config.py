@@ -47,8 +47,12 @@ RATE_LIMITS = {               # groupe -> (requêtes autorisées, fenêtre en se
     "stations": (150, 60),
     "nearest": (30, 60),
     "calendar": (12, 60),
+    "feedback": (5, 600),
 }
 
 # Complément TER : nombre d'arrivées Max essayées par gare-relais (la plus proche d'abord), espacées d'au moins…
 TER_ARRIVALS_PER_RELAY = (5, 3, 2, 1)
 TER_ARRIVAL_SPACING_MIN = 45
+
+# Page privée des retours visiteurs : /admin/retours?token=<FEEDBACK_TOKEN> (désactivée si vide)
+FEEDBACK_TOKEN = os.environ.get("FEEDBACK_TOKEN", "")

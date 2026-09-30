@@ -196,7 +196,7 @@ svg{flex:none}
 .btn.square{width:46px;padding:0;flex:none}
 
 /* résumé de la recherche (vue résultats), comme l'en-tête des résultats SNCF Connect */
-.search-sum{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--bar);color:var(--bar-ink)}
+.search-sum{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--bar);color:var(--bar-ink);border-radius:var(--r-lg);box-shadow:var(--shadow-1)}
 .ss-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .ss-od{font-weight:800;font-size:15.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ss-od i{font-style:normal;color:var(--bar-soft);font-weight:400;margin:0 4px}
@@ -205,9 +205,11 @@ svg{flex:none}
 .search-sum .btn:hover{background:rgba(255,255,255,.2)}
 
 /* ------------------------------------------------------------------ résultats */
-.results{display:flex;flex-direction:column}
+/* résultats : l'en-tête et chaque jour sont des blocs arrondis séparés, comme le reste du site */
+.results{display:flex;flex-direction:column;gap:12px}
 .results:empty{display:none}
-.res-head{position:sticky;top:0;z-index:6;display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+.res-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:12px 16px;background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-lg);box-shadow:var(--shadow-1)}
+.day-block{background:var(--surface);border-radius:var(--r-lg);overflow:clip;box-shadow:var(--shadow-1)}
 .res-sum{flex:1 1 200px;min-width:0;font-size:14px;color:var(--ink-2);line-height:1.35}
 .res-sum b{color:var(--ink)}
 .res-sum small{display:block;color:var(--muted);font-size:12.5px}
@@ -237,12 +239,12 @@ svg{flex:none}
 .switch input:checked+.track::after{transform:translateX(15px)}
 .switch input:focus-visible+.track{outline:2px solid var(--focus);outline-offset:2px}
 
-.day{position:sticky;top:var(--rh,0px);z-index:5;display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0;padding:10px 16px 8px;background:var(--board-panel);color:#FFFFFF;font:700 14px/1 var(--font-disp);letter-spacing:.09em;text-transform:uppercase}
+.day{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0;padding:10px 16px 8px;background:var(--board-panel);color:#FFFFFF;font:700 14px/1 var(--font-disp);letter-spacing:.09em;text-transform:uppercase}
 .day small{font:600 12.5px var(--font-body);letter-spacing:0;text-transform:none;color:var(--board-yellow)}
 
 /* ------------------------------------------------------------------ l'écran des départs (format CATI) */
 .trips{list-style:none;margin:0;padding:0;background:var(--board);color:var(--board-text)}
-.trip{background:var(--board)}
+.trip{background:var(--board);scroll-margin-top:40px}
 .trip:nth-child(2n){background:var(--board-alt)}
 .trip-hit{display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:12px;align-items:start;width:100%;padding:12px 16px;background:none;border:0;text-align:left;color:var(--board-text)}
 .trip-hit:hover{background:rgba(255,255,255,.07)}
@@ -329,13 +331,40 @@ sup{font-size:.6em;margin-left:2px;font-weight:700;vertical-align:.55em;line-hei
 .foot a{color:var(--ink-2);font-weight:700}
 
 /* bouton « afficher plus de résultats » en bas du tableau */
-.more{display:flex;flex-direction:column;align-items:center;gap:2px;margin:14px 16px 18px;padding:12px 16px;border:1.5px dashed var(--line);border-radius:var(--r);background:var(--surface);color:var(--primary);font-weight:800;font-size:14.5px}
+.more{display:flex;flex-direction:column;align-items:center;gap:2px;margin:0;padding:12px 16px;border:1.5px dashed var(--line);border-radius:var(--r);background:var(--surface);color:var(--primary);font-weight:800;font-size:14.5px}
 .more:hover{border-color:var(--primary)}
 .more small{font-weight:600;font-size:12.5px;color:var(--muted)}
 
 /* calendrier du mois */
-.cal-chip{border-color:var(--primary);color:var(--primary)}
-.cal-chip[aria-expanded="true"]{background:var(--primary-soft)}
+/* trajets de nuit masqués : une ligne cliquable sous le tableau du jour */
+.night-more{display:flex;align-items:center;gap:10px;width:100%;padding:11px 16px;border:0;border-top:1px solid var(--line-soft);background:var(--surface);color:var(--ink);text-align:left;font-weight:700;font-size:14px}
+.night-more:hover{background:var(--surface-2)}
+.night-more svg{width:18px;height:18px;color:var(--night)}
+.night-more span{display:flex;flex-direction:column}
+.night-more small{font-weight:500;font-size:12.5px;color:var(--muted)}
+.b.est{background:transparent;color:var(--board-soft);box-shadow:inset 0 0 0 1.5px rgba(206,208,246,.6)}
+.s-note.est{color:var(--board-yellow)}
+
+/* bouton calendrier du mois, bien visible */
+.cal-btn{display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;border:1.5px solid var(--primary);border-radius:var(--r);background:var(--primary-soft);color:var(--primary);text-align:left}
+.cal-btn:hover{background:color-mix(in srgb,var(--primary) 16%,var(--surface))}
+.cal-btn svg{width:24px;height:24px}
+.cal-btn span{display:flex;flex-direction:column;gap:1px}
+.cal-btn b{font-size:15px}
+.cal-btn small{font-size:12.5px;color:var(--ink-2)}
+.cal-btn[aria-expanded="true"]{background:var(--primary);color:var(--primary-ink)}
+.cal-btn[aria-expanded="true"] small{color:inherit;opacity:.85}
+
+/* signalements */
+.linkish{border:0;background:none;padding:0;font:inherit;color:var(--ink-2);font-weight:700;text-decoration:underline;cursor:pointer}
+.fb-kinds{display:flex;flex-wrap:wrap;gap:8px}
+.fb-kind{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:999px;cursor:pointer;font-weight:600;font-size:14px}
+.fb-kind:has(input:checked){border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
+.fb-kind input{accent-color:var(--primary);margin:0}
+.fb-field{display:flex;flex-direction:column;gap:6px;font-weight:700;font-size:14px}
+.fb-field small{font-weight:400;color:var(--muted)}
+.fb-field textarea,.fb-field input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);font:inherit;font-weight:400;resize:vertical}
+.fb-field textarea:focus,.fb-field input:focus{outline:none;border-color:var(--primary)}
 .cal{display:flex;flex-direction:column;gap:8px;padding-top:4px;border-top:1px solid var(--line-soft)}
 .cal-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 10px;padding-top:8px}
 .cal-head small{color:var(--muted);font-size:12.5px}
@@ -433,7 +462,9 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
   .app[data-view="results"]{height:100dvh}
   .app[data-view="results"] .stage{display:grid;grid-template-columns:var(--panel-w) minmax(0,1fr)}
   .app[data-view="results"] .panel{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;background:var(--ground);border-right:1px solid var(--line)}
-  .app[data-view="results"] .form{padding:0 16px 16px}
+  .app[data-view="results"] .view{padding:0 16px 16px}
+  .app[data-view="results"] .form{padding-bottom:4px}
+  .app[data-view="results"] .search-sum{margin-bottom:12px}
   .app[data-view="results"] .foot{padding:6px 16px;border-top:1px solid var(--line-soft);background:var(--surface)}
   /* carte masquée : l'écran des départs en grand */
   .app[data-view="results"][data-map="off"] .stage{grid-template-columns:minmax(0,1fr)}
@@ -456,7 +487,8 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
   .app[data-view="results"] .stage{display:flex;flex-direction:column}
   .app[data-view="results"] .map-wrap{order:-1;height:40dvh;min-height:240px;flex:none}
   .app[data-view="results"][data-map="off"] .map-wrap{display:none}
-  .app[data-view="results"] .form{padding:0 12px 14px}
+  .app[data-view="results"] .view{padding:0 12px 14px}
+  .app[data-view="results"] .search-sum{margin-bottom:12px}
   .app[data-view="results"] .tabs{margin:10px auto}
   .bar-status{display:none}
   .search-sum #btn-sum-cal span{display:none}
@@ -467,8 +499,9 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
   .legend{left:8px;right:auto;bottom:8px;flex-direction:row;flex-wrap:wrap;gap:4px 10px;padding:5px 9px;font-size:11px}
   .lg i{width:16px}
   .leaflet-control-zoom{display:none}
-  .res-head{position:static}
-  .day{top:0}
+  .bar-btn#btn-feedback span{display:none}
+  .bar-btn#btn-feedback{width:36px;padding:0;justify-content:center}
+
   .detail{padding:4px 12px 16px}
   .trip-hit{padding:12px}
 }

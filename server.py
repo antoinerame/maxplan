@@ -39,7 +39,7 @@ import regions
 import tgvmax_core as core
 from navitia import navitia
 
-VERSION = "3.1"
+VERSION = "3.2"
 WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web"))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
@@ -230,11 +230,24 @@ def senior_weekend(prefs, date):
 SENIOR_NOTICE = "Max Senior : pas de place à 0 € le samedi ni le dimanche."
 
 
-def ter_horizon_notice():
+def ter_query_date(ymd):
+    """Date à interroger pour les horaires TER. L'API SNCF ne donne les horaires que ~4 semaines à
+    l'avance ; au-delà, on prend le même jour de la semaine 1 à 5 semaines plus tôt (les horaires TER
+    se répètent d'une semaine à l'autre) et on signale que l'horaire est estimé."""
+    if navitia.date_in_range(ymd):
+        return ymd, False
+    for k in range(1, 6):
+        d = shift(ymd, -7 * k)
+        if navitia.date_in_range(d):
+            return d, True
+    return None, False
+
+
+def ter_estimated_notice():
     end = (navitia.coverage() or {}).get("end") or ""
     when = f" (publiés jusqu'au {int(end[6:8])}/{end[4:6]})" if len(end) == 8 else ""
-    return ("Pas de complément TER ce jour-là : la SNCF ne publie les horaires TER que ~3 semaines à "
-            f"l'avance{when}, alors que les places Max sont connues 30 jours à l'avance.")
+    return ("Horaires TER estimés : l'API de la SNCF ne donne pas encore les horaires de ce jour"
+            f"{when}. On reprend ceux du même jour de la semaine précédente ; vérifie sur SNCF Connect.")
 
 
 def search_one_day(src, dst, date, opts):
@@ -297,22 +310,23 @@ def search_one_day(src, dst, date, opts):
             s, g, path = job
             ready = path[-1]["arr"] + core.min_connection(s)       # minutes depuis le jour J (peut dépasser 1440)
             jdate = shift(date, ready // 1440)                      # après un train de nuit : le lendemain !
-            if not navitia.date_in_range(jdate):
-                return job, None, None
-            jr = navitia.journey(g["id"], dest_geo["id"], jdate, core.min_to_hhmm(ready),
+            qdate, estimated = ter_query_date(jdate)
+            if not qdate:
+                return job, None, None, False
+            jr = navitia.journey(g["id"], dest_geo["id"], qdate, core.min_to_hhmm(ready),
                                  max_transfers=opts["ter_transfers"])
-            return job, jr, ready
+            return job, jr, ready, estimated
 
-        for (s, g, path), jr, ready in IO_POOL.map(tail, jobs):
+        for (s, g, path), jr, ready, estimated in IO_POOL.map(tail, jobs):
             if not jr or jr["duration_min"] > config.TER_MAX_TAIL_MIN:
                 continue
-            ter_itins.append((path, s, g, jr, ready))
+            ter_itins.append((path, s, g, jr, ready, estimated))
             labels.update(e for leg in path for e in (leg["o"], leg["d"]))
 
     geo = geocode_many(list(labels))
     out = [dict(itinerary_from_path(p, date, geo)) for p in max_paths]
 
-    for path, s, g, jr, ready in ter_itins:
+    for path, s, g, jr, ready, estimated in ter_itins:
         legs = [max_leg(e, date, geo) for e in path]
         last_arr = path[-1]["arr"]
         tdep = core.hhmm_to_min(jr["departure"]) if jr.get("departure") else ready % 1440
@@ -329,6 +343,7 @@ def search_one_day(src, dst, date, opts):
             "dep": jr["departure"], "arr": jr["arrival"],
             "dep_day": ter_dep // 1440, "arr_day": ter_arr // 1440,
             "duration_min": jr["duration_min"], "transfers": jr["transfers"], "price": price,
+            "estimated_schedule": estimated,
             "steps": [{"mode": nice_mode(x["mode"]), "from": nice_place(x["from"]), "to": nice_place(x["to"]),
                        "dep": x["dep"], "arr": x["arr"]} for x in jr["sections"]],
             "path": [pt for x in jr["sections"] for pt in x["coords"]],
@@ -345,23 +360,31 @@ def search_one_day(src, dst, date, opts):
             "duration_min": ter_arr - path[0]["dep"],
             "nocturnal": (path_nocturnal(path) or core.night_overlap(last_arr, ter_dep)
                           or core.night_overlap(ter_dep, ter_arr)),
+            "estimated_schedule": estimated,
             "legs": legs,
         })
 
-    total = len(out)
-    if not opts["nights"]:
-        out = [it for it in out if not it["nocturnal"]]
-    out = drop_dominated(out)
+    # Trajets de jour : les meilleurs sans la nuit. Trajets de nuit : ceux qui restent intéressants
+    # même face aux trajets de jour (sinon on ne propose pas une nuit en gare pour rien).
+    # Détours absurdes : un trajet de jour bien plus long que le plus rapide du jour ne sert à rien.
+    # De nuit, on tolère plus long (un train de nuit dure ~10 h), mais pas 20 h avec une nuit en gare.
+    fastest = min((it["duration_min"] for it in out if not it["nocturnal"]), default=None) \
+        or min((it["duration_min"] for it in out), default=None)
+    if fastest:
+        out = [it for it in out if it["duration_min"] <= (
+            max(2 * fastest, fastest + 720) if it["nocturnal"] else max(2 * fastest, fastest + 240))]
+    day = drop_dominated([it for it in out if not it["nocturnal"]])
+    full = drop_dominated(out)
+    night = [it for it in full if it["nocturnal"]]
+    shown = full if opts["nights"] else day
     for it in out:
-        it.pop("_dep"); it.pop("_arr")
-    out.sort(key=lambda it: (it["paid"], it["departure"]))
-    res = {"itineraries": out}
-    if opts["ter"] and not navitia.date_in_range(date):
-        res["ter_notice"] = ter_horizon_notice()
-    if total and not out:
-        res["notice"] = f"{total} trajet(s) de nuit masqué(s) — active « Trajets de nuit » pour les voir."
-    elif total > len(out):
-        res["hidden_night"] = total - len(out)
+        it.pop("_dep", None); it.pop("_arr", None)
+    order = lambda it: (it["paid"], it["departure"])
+    res = {"itineraries": sorted(shown, key=order)}
+    if not opts["nights"] and night:
+        res["night_itineraries"] = sorted(night, key=order)
+    if any(it.get("estimated_schedule") for it in shown + night):
+        res["ter_notice"] = ter_estimated_notice()
     return res
 
 
@@ -401,7 +424,8 @@ def do_search(qs):
     prefs = pricing.prefs_from_qs(qs)
     base = {
         "prefs": prefs, "maxconn": _int(qs, "maxconn", 3, 0, 3),
-        "ter": _flag(qs, "ter", True), "ter_transfers": _int(qs, "ter_transfers", 1, 0, 3),
+        "ter": _flag(qs, "ter", True), "ter_transfers": _int(qs, "ter_transfers", 3, 0, 3),
+
         "nights": _flag(qs, "nights", False),
     }
 
@@ -521,6 +545,61 @@ def do_calendar(qs):
 
     return {"from": src, "to": dst, "days": list(DAY_POOL.map(one, core.dataset_dates())),
             "ter_coverage": navitia.coverage()}
+
+
+# ======================================================================= retours des visiteurs
+FEEDBACK_FILE = os.path.join(config.DATA_DIR, "feedback.jsonl")
+FEEDBACK_KINDS = {"bug": "Problème", "idee": "Idée / amélioration", "donnees": "Trajet ou prix faux", "autre": "Autre"}
+_FEEDBACK_LOCK = threading.Lock()
+
+
+def save_feedback(data):
+    """Enregistre un signalement (une ligne JSON) dans le dossier de données."""
+    if not isinstance(data, dict):
+        raise BadRequest("Message illisible.")
+    msg = str(data.get("message") or "").strip()
+    if len(msg) < 3:
+        raise BadRequest("Écris quelques mots pour décrire le problème ou l'idée.")
+    kind = str(data.get("kind") or "autre")
+    rec = {
+        "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "kind": kind if kind in FEEDBACK_KINDS else "autre",
+        "message": msg[:2000],
+        "contact": str(data.get("contact") or "").strip()[:200],
+        "page": str(data.get("page") or "")[:600],
+        "version": VERSION,
+    }
+    with _FEEDBACK_LOCK:
+        with open(FEEDBACK_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return {"ok": True}
+
+
+def feedback_page():
+    import html
+    rows = []
+    if os.path.exists(FEEDBACK_FILE):
+        with open(FEEDBACK_FILE, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    pass
+    items = "".join(
+        f"<article><header><b>{html.escape(FEEDBACK_KINDS.get(r.get('kind'), 'Autre'))}</b>"
+        f"<time>{html.escape(r.get('ts', ''))}</time></header><p>{html.escape(r.get('message', ''))}</p>"
+        + (f"<small>Contact : {html.escape(r['contact'])}</small>" if r.get("contact") else "")
+        + (f"<small>Page : <a href=\"{html.escape(r['page'])}\">{html.escape(r['page'])}</a></small>"
+           if str(r.get("page", "")).startswith("/") else "")
+        + "</article>" for r in reversed(rows))
+    return ("<!DOCTYPE html><html lang=fr><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+            "<meta name=robots content=noindex><title>Retours — MaxPlan</title><style>"
+            "body{font:15px/1.5 system-ui,sans-serif;max-width:760px;margin:0 auto;padding:24px 16px;background:#F2F2F7;color:#0C131F}"
+            "article{background:#fff;border-radius:12px;padding:12px 16px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}"
+            "header{display:flex;justify-content:space-between;gap:10px}time{color:#676D7E;font-size:13px}"
+            "p{white-space:pre-wrap;margin:6px 0}small{display:block;color:#676D7E;word-break:break-all}"
+            f"</style><h1>Retours des visiteurs ({len(rows)})</h1>"
+            + (items or "<p>Aucun retour pour l'instant.</p>") + "</html>")
 
 
 def do_meta(qs):
@@ -658,11 +737,42 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, hit[1], ctype, headers, compressible=False)
         return self._send(200, body, ctype, headers, compressible=False)
 
+    def do_POST(self):
+        u = urllib.parse.urlparse(self.path)
+        if u.path != "/api/feedback":
+            return self._json({"error": "Adresse inconnue."}, 404)
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            return self._json({"error": "Format attendu : JSON."}, 415)
+        limit, window = config.RATE_LIMITS["feedback"]
+        if not LIMITER.allow((self.client_ip(), "feedback"), limit, window):
+            return self._json({"error": "Merci ! Tu as déjà envoyé plusieurs messages, réessaie un peu plus tard."}, 429)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = 0
+        if not 0 < n <= 10000:
+            return self._json({"error": "Message trop long."}, 413)
+        try:
+            return self._json(save_feedback(json.loads(self.rfile.read(n).decode("utf-8"))))
+        except BadRequest as e:
+            return self._json({"error": str(e)}, 400)
+        except Exception:
+            traceback.print_exc()
+            return self._json({"error": "Erreur interne, réessaie dans un instant."}, 500)
+
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(u.query)
         if u.path == "/healthz":
             return self._json({"ok": True, "service": "tgvmax", "version": VERSION})
+        if u.path == "/admin/retours":
+            import hmac
+            token = _p(qs, "token")
+            if not config.FEEDBACK_TOKEN or not hmac.compare_digest(token, config.FEEDBACK_TOKEN):
+                return self._send(404, "Page introuvable".encode("utf-8"), "text/plain; charset=utf-8")
+            return self._send(200, feedback_page().encode("utf-8"), "text/html; charset=utf-8",
+                              {"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
+
         route = ROUTES.get(u.path)
         if not route:
             return self._static(u.path)

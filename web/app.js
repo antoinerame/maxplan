@@ -45,6 +45,7 @@
     board: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M8 4v16"/>'),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
     cal: svg('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
+    msg: svg('<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>'),
   };
 
   let toastTimer;
@@ -75,7 +76,7 @@
     sort: store.get('sort', 'dep'), freeOnly: store.get('freeOnly', false),
     explore: null, exFilter: '',
   };
-  const opts = Object.assign({ ter: true, ter_transfers: '1', nights: false, e_maxconn: '1' }, store.get('opts', {}));
+  const opts = Object.assign({ ter: true, nights: false, e_maxconn: '1' }, store.get('opts', {}));
   let mapOn = store.get('mapOn', false);
   let profile = Object.assign({ sub: 'jeune', ter: {} }, store.get('profile', {}));
   let favs = store.get('favs', []);
@@ -401,7 +402,6 @@
   /* ================================================================== options en pilules */
   const PILLS = {
     ter: { toggle: true, label: () => 'Compléter en TER' },
-    ter_transfers: { cycle: ['0', '1', '2', '3'], label: v => (v === '0' ? 'TER direct' : `TER : ${plural(Number(v), 'corresp.', 'corresp.')}`) },
     nights: { toggle: true, label: () => 'Trajets de nuit' },
     e_maxconn: { cycle: ['0', '1', '2'], label: v => (v === '0' ? 'Trains directs' : plural(Number(v), 'correspondance', 'correspondances')) },
   };
@@ -420,7 +420,6 @@
         b.title = 'Toucher pour changer';
       }
     }
-    $('.pill[data-pill="ter_transfers"]').hidden = !opts.ter;
   }
   function clickPill(name) {
     const p = PILLS[name];
@@ -478,7 +477,7 @@
       f: $('#s-from').value.trim(), fl: $('#s-from').dataset.label || '',
       t: $('#s-to').value.trim(), tl: $('#s-to').dataset.label || '',
       du: $('#s-fd').value, au: $('#s-td').value, h1: $('#s-start').value, h2: $('#s-end').value,
-      ter: opts.ter ? '1' : '0', tc: opts.ter_transfers, n: opts.nights ? '1' : '0',
+      ter: opts.ter ? '1' : '0', n: opts.nights ? '1' : '0',
     };
     if (state.rt) Object.assign(s, { r: '1', rdu: $('#r-fd').value, rau: $('#r-td').value, rh1: $('#r-start').value, rh2: $('#r-end').value });
     return s;
@@ -490,7 +489,6 @@
     $('#s-start').value = s.h1 || '';
     $('#s-end').value = s.h2 || '';
     if (s.ter != null) opts.ter = s.ter !== '0';
-    if (s.tc != null) opts.ter_transfers = String(s.tc);
     if (s.n != null) opts.nights = s.n === '1';
     if (s.r === '1' && s.rdu) {
       setRT(true, s.rdu, s.rau || s.rdu);
@@ -526,7 +524,7 @@
       legs.push({ dir: 'ret', from: to, to: from, fromName: toIn.value.trim(), toName: fromIn.value.trim(), fd: rfd, td: rtd, start: $('#r-start').value, end: $('#r-end').value });
     }
     const common = {
-      maxconn: 3, ter: opts.ter ? 1 : 0, ter_transfers: opts.ter_transfers,
+      maxconn: 3, ter: opts.ter ? 1 : 0, ter_transfers: 3,
       nights: opts.nights ? 1 : 0, ...profileParams(),
     };
     const token = ++state.searchSeq;
@@ -544,7 +542,7 @@
       }
     }
     state.lastQuery = { legs, rt: state.rt };
-    state.dir = 'out'; state.sel = { out: null, ret: null }; state.current = null; state.editing = false; state.showMore = false;
+    state.dir = 'out'; state.sel = { out: null, ret: null }; state.current = null; state.editing = false; state.showMore = false; state.showNight = false;
     closeCal();
     clearMap();
     renderResults();
@@ -565,6 +563,8 @@
           if (r.to_coord && job.dir === 'out') state.toCoord = r.to_coord;
         } catch (e) { day = { date: job.date, itineraries: [], error: e.message }; }
         if (token !== state.searchSeq) return;
+        // trajets de nuit renvoyés à part : gardés sous le coude, affichés sur demande
+        day.itineraries = [...(day.itineraries || []), ...(day.night_itineraries || []).map(x => ({ ...x, _night: true }))];
         Object.assign(state.days.find(x => x.dir === job.dir && x.date === job.date), day, { loading: false });
         renderResults();
       }
@@ -592,6 +592,7 @@
   function dayTrips(d) {
     let list = (d.itineraries || []).map((it, i) => ({ it, key: `${d.dir}|${d.date}#${i}`, date: d.date }));
     if (state.freeOnly) list = list.filter(x => !x.it.paid);
+    if (!state.showNight) list = list.filter(x => !x.it._night);
     return list.sort(tripSort);
   }
   // trajets « en plus » : 2 changements ou plus, montrés seulement sur demande (ou s'il n'y a rien d'autre)
@@ -628,7 +629,8 @@
     const dirs = state.rt ? ['out', 'ret'] : ['out'];
     const shown = state.days.filter(d => d.dir === state.dir);
     const loaded = state.days.filter(d => !d.loading).length, total = state.days.length;
-    const all = shown.flatMap(d => d.itineraries || []);
+    const pool = d => (d.itineraries || []).filter(t => state.showNight || !t._night);
+    const all = shown.flatMap(pool);
     const freeN = all.filter(t => !t.paid).length;
     const paid = all.filter(t => t.paid).map(t => t.cost_eur);
     const cheapest = paid.length ? Math.min(...paid) : null;
@@ -639,13 +641,13 @@
     if (state.rt) {
       html += `<div class="dir-tabs" role="group" aria-label="Sens du trajet">${dirs.map(dir => {
         const l = q.legs.find(x => x.dir === dir);
-        const n = state.days.filter(d => d.dir === dir).flatMap(d => d.itineraries || []).length;
+        const n = state.days.filter(d => d.dir === dir).flatMap(pool).length;
         return `<button class="dir-tab" type="button" data-dir="${dir}" aria-pressed="${state.dir === dir}">
           <b>${dir === 'out' ? 'Aller' : 'Retour'} · ${plural(n, 'trajet', 'trajets')}</b><small>${esc(l.fromName)} → ${esc(l.toName)}</small></button>`;
       }).join('')}</div>`;
     }
     html += `<div class="res-sum">${loaded < total ? `Recherche… ${loaded}/${total} jours · ` : ''}<b>${plural(all.length, 'trajet', 'trajets')}</b>`
-      + (all.length ? ` · <b>${freeN}</b> 100 % gratuit${freeN > 1 ? 's' : ''}${cheapest != null ? ` · avec TER dès ${nf.format(cheapest)} €` : ''}` : '')
+      + (all.length ? ` · ${freeN ? `<b>${freeN}</b> à 0 €` : 'aucun à 0 €'}${cheapest != null ? ` · avec TER dès ${nf.format(cheapest)} €` : ''}` : '')
       + `<small>${esc(leg.fromName)} → ${esc(leg.toName)}</small></div>
       <div class="res-tools">${mapBtn()}
         <button class="btn ghost sm" type="button" id="btn-share">${ICON.share}<span>Partager</span></button>
@@ -665,30 +667,42 @@
     if (loaded < total) html += `<div class="progress"><i style="width:${Math.round(loaded / total * 100)}%"></i></div>`;
     html += '</div>';
 
-    let hiddenExtra = 0, extraTotal = 0;
+    let hiddenExtra = 0, extraTotal = 0, nightTotal = 0;
     for (const d of shown) {
       const all = d.loading ? [] : dayTrips(d);
-      const main = all.filter(x => !isExtra(x.it));
+      const main = all.filter(x => !isExtra(x.it) || x.it._night);   // nuit demandée : montrée telle quelle
       const openAll = state.showMore || !main.length;      // rien de simple ce jour-là : on montre tout
       const list = openAll ? all : main;
+      const nights = (d.itineraries || []).filter(t => t._night).length;
+      nightTotal += nights;
       extraTotal += all.length - main.length;
       if (!openAll) hiddenExtra += all.length - main.length;
-      html += `<h3 class="day"><span>${fmtDay(d.date)}</span><small>${d.loading ? 'recherche…' : plural(list.length, 'trajet', 'trajets')}</small></h3>`;
-      if (d.loading) { html += skeleton(2); continue; }
-      if (d.error) { html += `<p class="notice err">${esc(d.error)}</p>`; continue; }
+      html += `<section class="day-block"><h3 class="day"><span>${fmtDay(d.date)}</span><small>${d.loading ? 'recherche…' : plural(list.length, 'trajet', 'trajets')}</small></h3>`;
+      if (d.loading) { html += skeleton(2) + '</section>'; continue; }
+      if (d.error) { html += `<p class="notice err">${esc(d.error)}</p></section>`; continue; }
       if (d.notice) html += `<p class="notice">${esc(d.notice)}</p>`;
       if (d.ter_notice) html += `<p class="notice">${esc(d.ter_notice)}</p>`;
       if (list.length) html += `<ul class="trips">${list.map(x => tripRow(x.it, x.key)).join('')}</ul>`;
-      else if (!d.notice) html += `<p class="none">${state.freeOnly && (d.itineraries || []).length ? 'Pas de trajet 100 % gratuit ce jour-là.' : 'Aucun trajet ce jour-là.'}</p>`;
-      if (d.hidden_night) html += `<p class="none">+ ${plural(d.hidden_night, 'trajet de nuit masqué', 'trajets de nuit masqués')} (filtre « Trajets de nuit »).</p>`;
+      else if (!d.notice) {
+        const why = state.freeOnly && (d.itineraries || []).length ? 'Pas de trajet 100 % gratuit ce jour-là.'
+          : nights && !state.showNight ? 'Rien en journée ce jour-là.' : 'Aucun trajet ce jour-là.';
+        html += `<p class="none">${why}</p>`;
+      }
+      if (nights && !state.showNight) {
+        html += `<button class="night-more" type="button" data-night>${ICON.moon}<span>Voir ${nights > 1 ? `les ${nights} trajets` : 'le trajet'} de nuit<small>train de nuit, ou nuit à attendre en gare</small></span></button>`;
+      }
+      html += '</section>';
+    }
+    if (state.showNight && nightTotal) {
+      html += `<button class="more" type="button" data-night>Masquer les trajets de nuit</button>`;
     }
     if (hiddenExtra) {
       html += `<button class="more" type="button" id="btn-more">Afficher plus de résultats<small>${plural(hiddenExtra, 'trajet', 'trajets')} avec 2 changements ou plus</small></button>`;
     } else if (state.showMore && extraTotal) {
       html += `<button class="more" type="button" id="btn-more">Masquer les trajets à 2 changements ou plus</button>`;
     }
-    if (shown.every(d => !d.loading) && !all.length) {
-      html += `<div class="empty"><h2>Pas de train Max sur cette période</h2><p>Essaie d'autres dates, d'autoriser une correspondance de plus, d'activer le complément TER ou les trajets de nuit (bouton « Modifier »).</p></div>`;
+    if (shown.every(d => !d.loading) && !all.length && !nightTotal) {
+      html += `<div class="empty"><h2>Pas de train Max sur cette période</h2><p>Essaie d'autres dates : le bouton « Calendrier » montre les jours où il y a des trains à 0 € sur ce trajet.</p></div>`;
     }
     box.innerHTML = html;
     box.style.setProperty('--rh', `${$('#res-head').offsetHeight}px`);
@@ -707,7 +721,9 @@
     const meta = [fmtDur(it.duration_min), nch ? plural(nch, 'changement', 'changements') : 'direct'];
     if (via.length) meta.push(`via ${via.join(', ')}`);
     const ic = it.legs.some(l => l.free && l.mode === 'Intercités');
+    const est = it.legs.some(l => l.estimated_schedule);
     const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
+      + (est ? '<em class="b est">Horaire TER estimé</em>' : '')
       + (it.nocturnal ? `<em class="b night">${ICON.moon}Nuit</em>` : '');
     return `<li class="trip${sel ? ' is-sel' : ''}" data-key="${esc(key)}">
       <button class="trip-hit" type="button" aria-expanded="${sel}">
@@ -747,6 +763,7 @@
         body = `<div class="s-title"><b>${esc(l.mode)}</b><em class="b paid">${fmtPrice(p.price)}</em></div>
           <div class="s-sub">${fmtDur(dur)}${l.transfers ? ` · ${plural(l.transfers, 'correspondance', 'correspondances')}` : ''}</div>
           ${steps}
+          ${l.estimated_schedule ? '<div class="s-note est">Horaire estimé d\'après la semaine précédente : la SNCF ne l\'a pas encore publié.</div>' : ''}
           <div class="s-note">Estimation : ${p.base ? `tarif normal ≈ ${nf.format(p.base)} € · ` : ''}${esc(p.label || '')}. Les promos affichées par SNCF ne se cumulent pas avec les cartes.</div>`;
       }
       h += `<li class="leg${l.free ? '' : ' paid'}"><span class="s-time"></span><span class="s-node"></span><div class="s-body">${body}
@@ -764,7 +781,8 @@
     renderResults();
     if (state.current) {
       drawCurrent();
-      if (scroll) $(`.trip[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      // le trajet ouvert remonte en haut (sous l'en-tête du jour) pour se lire sans faire défiler
+      if (scroll) $(`.trip[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
     } else clearMap();
   }
   function setDir(dir) {
@@ -862,7 +880,7 @@
         <input class="ex-filter" id="ex-filter" type="search" placeholder="Filtrer les gares…" aria-label="Filtrer les gares">
       </div>
       ${data.notice ? `<p class="notice">${esc(data.notice)}</p>` : ''}
-      <ul class="trips" id="ex-list"></ul>`;
+      <div class="day-block"><ul class="trips" id="ex-list"></ul></div>`;
     renderExploreList();
   }
 
@@ -923,7 +941,36 @@
       </div>`).join('');
   }
 
+  /* ================================================================== signalements */
+  function openFeedback() {
+    $('#fb-message').value = '';
+    $('#dlg-feedback').showModal();
+    $('#fb-message').focus();
+  }
+  async function sendFeedback(e) {
+    e.preventDefault();
+    const message = $('#fb-message').value.trim();
+    if (message.length < 3) { toast('Écris quelques mots pour décrire le problème ou l\'idée.'); $('#fb-message').focus(); return; }
+    const btn = $('#fb-send');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: $('#form-feedback input[name="kind"]:checked')?.value || 'autre',
+          message, contact: $('#fb-contact').value.trim(), page: location.pathname + location.search,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Le serveur a répondu ${res.status}.`);
+      $('#dlg-feedback').close();
+      toast('Merci ! Ton message a bien été envoyé.');
+    } catch (err) { toast(err.message || 'Envoi impossible, réessaie plus tard.'); }
+    btn.disabled = false;
+  }
+
   /* ================================================================== profil */
+
   const DISCOUNTS = [0, 25, 30, 40, 50, 60, 75, 100];
   function renderProfileChip() {
     const b = $('#btn-profile');
@@ -980,6 +1027,8 @@
     $('#btn-swap').innerHTML = ICON.swap;
     $('#btn-search').innerHTML = `${ICON.search}<span>Rechercher</span>`;
     $('#btn-fav').innerHTML = ICON.star;
+    $('#btn-cal').innerHTML = `${ICON.cal}<span><b>Calendrier du mois</b><small>Voir d'un coup d'œil les jours avec des trains à 0 €</small></span>`;
+    $('#btn-feedback').innerHTML = `${ICON.msg}<span>Signaler</span>`;
     $$('[data-locate]').forEach(b => { b.innerHTML = ICON.locate; b.addEventListener('click', () => locate($('#' + b.dataset.locate))); });
     $$('.od-row>label').forEach(l => l.addEventListener('click', () => $('#' + l.htmlFor)?.focus()));
 
@@ -1038,6 +1087,7 @@
       const dirB = e.target.closest('[data-dir]');
       if (dirB) { setDir(dirB.dataset.dir); return; }
       if (e.target.closest('#btn-more')) { state.showMore = !state.showMore; renderResults(); return; }
+      if (e.target.closest('[data-night]')) { state.showNight = !state.showNight; renderResults(); return; }
       const sortB = e.target.closest('#sort button');
       if (sortB) { state.sort = sortB.dataset.v; store.set('sort', state.sort); renderResults(); return; }
       if (e.target.closest('#btn-share')) {
@@ -1081,6 +1131,9 @@
     });
 
     $('#btn-profile').addEventListener('click', () => openProfile(false));
+    $$('#btn-feedback, [data-feedback]').forEach(b => b.addEventListener('click', openFeedback));
+    $('#dlg-feedback [data-close]').addEventListener('click', () => $('#dlg-feedback').close());
+    $('#form-feedback').addEventListener('submit', sendFeedback);
     $('#dlg-profile').addEventListener('close', () => {
       if ($('#dlg-profile').returnValue === 'save') saveProfile();
       else store.set('profileSet', true);

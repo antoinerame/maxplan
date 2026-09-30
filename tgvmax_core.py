@@ -156,10 +156,12 @@ def min_connection(station):
 
 
 def night_overlap(start, end):
-    """[start,end] (minutes absolues) chevauche-t-il une plage de nuit ~23h-6h ?"""
+    """[start,end] (minutes absolues : train ou attente en gare) empiète-t-il vraiment sur la nuit ?
+    On regarde le cœur de la nuit (0 h 30 – 5 h) avec au moins 30 min de chevauchement : une arrivée
+    à 23 h 20 ou un départ à 5 h 59 ne font pas un « trajet de nuit »."""
     for k in range(0, 5):  # autour de chaque minuit (0, 1440, 2880, ...)
-        w0, w1 = k * 1440 - 60, k * 1440 + 360  # 23:00 -> 06:00
-        if start < w1 and w0 < end:
+        w0, w1 = k * 1440 + 30, k * 1440 + 300
+        if min(end, w1) - max(start, w0) >= 30:
             return True
     return False
 

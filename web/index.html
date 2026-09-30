@@ -21,9 +21,10 @@
 <body>
 <div class="app" id="app" data-view="home" data-map="off">
   <header class="bar">
-    <a class="brand" href="/" aria-label="MaxPlan — accueil"><span class="brand-tag">0 €</span><span class="brand-name">Max<em>Plan</em></span></a>
+    <a class="brand" href="/" aria-label="MaxPlan — accueil"><span class="brand-name">Max<em>Plan</em></span></a>
     <span class="bar-status" id="data-status">Chargement des données SNCF…</span>
     <div class="bar-actions">
+      <button class="bar-btn" id="btn-feedback" type="button" aria-label="Signaler un problème ou proposer une idée"></button>
       <button class="bar-btn" id="btn-profile" type="button" aria-label="Mon profil : abonnement et réductions TER"></button>
       <button class="bar-btn icon" id="btn-theme" type="button"></button>
     </div>
@@ -78,9 +79,8 @@
                 <button class="chip" type="button" data-quick="today">Aujourd'hui</button>
                 <button class="chip" type="button" data-quick="tomorrow">Demain</button>
                 <button class="chip" type="button" data-quick="weekend">Ce week-end</button>
-                <button class="chip" type="button" data-quick="week">7 jours</button>
-                <button class="chip cal-chip" type="button" id="btn-cal" aria-expanded="false">Calendrier du mois</button>
               </div>
+              <button class="cal-btn" type="button" id="btn-cal" aria-expanded="false"></button>
               <div class="cal" id="cal" hidden></div>
             </div>
 
@@ -99,7 +99,7 @@
             <div class="filters" role="group" aria-label="Options de recherche">
               <span class="filters-lbl">Filtrer par :</span>
               <button class="pill" type="button" data-pill="ter"></button>
-              <button class="pill" type="button" data-pill="ter_transfers"></button>
+
               <button class="pill" type="button" data-pill="nights"></button>
             </div>
 
@@ -153,7 +153,7 @@
     </main>
   </div>
 
-  <footer class="foot">Site non officiel, sans lien avec la SNCF. Contient des informations de la base « Disponibilité à 30 jours de places MAX JEUNE et MAX SENIOR » (SNCF Voyageurs), mise à disposition sous licence ODbL ; horaires TER via l'API SNCF ; prix TER estimés. · <a href="/mentions-legales.html">Mentions légales et sources</a></footer>
+  <footer class="foot">Site non officiel, sans lien avec la SNCF. Contient des informations de la base « Disponibilité à 30 jours de places MAX JEUNE et MAX SENIOR » (SNCF Voyageurs), mise à disposition sous licence ODbL ; horaires TER via l'API SNCF ; prix TER estimés. · <a href="/mentions-legales.html">Mentions légales et sources</a> · <button class="linkish" type="button" data-feedback>Signaler un problème</button></footer>
 </div>
 
 <dialog class="dialog" id="dlg-profile" aria-labelledby="dlg-title">
@@ -181,7 +181,37 @@
   </form>
 </dialog>
 
+<dialog class="dialog" id="dlg-feedback" aria-labelledby="fb-title">
+  <form class="dlg-inner" id="form-feedback" novalidate>
+    <header>
+      <h2 id="fb-title">Un problème, une idée ?</h2>
+      <p>Un trajet qui n'existe pas, un prix faux, un bouton qui ne marche pas, une idée d'amélioration : dis-le ici, c'est lu.</p>
+    </header>
+    <div class="dlg-body">
+      <fieldset>
+        <legend>C'est plutôt…</legend>
+        <div class="fb-kinds">
+          <label class="fb-kind"><input type="radio" name="kind" value="bug" checked><span>Un problème</span></label>
+          <label class="fb-kind"><input type="radio" name="kind" value="donnees"><span>Un trajet ou un prix faux</span></label>
+          <label class="fb-kind"><input type="radio" name="kind" value="idee"><span>Une idée</span></label>
+          <label class="fb-kind"><input type="radio" name="kind" value="autre"><span>Autre chose</span></label>
+        </div>
+      </fieldset>
+      <label class="fb-field"><span>Ton message</span>
+        <textarea id="fb-message" rows="5" maxlength="2000" required placeholder="Ex. : Paris → Lyon le 12 octobre, le train de 8 h 04 n'est pas à 0 € sur SNCF Connect."></textarea></label>
+      <label class="fb-field"><span>Pour te répondre <small>facultatif — e-mail, Instagram…</small></span>
+        <input id="fb-contact" maxlength="200" autocomplete="email"></label>
+      <p class="hint">La recherche affichée à l'écran est jointe au message pour aider à comprendre. Rien d'autre n'est envoyé.</p>
+    </div>
+    <footer>
+      <button class="btn ghost" type="button" data-close>Annuler</button>
+      <button class="btn primary" type="submit" id="fb-send">Envoyer</button>
+    </footer>
+  </form>
+</dialog>
+
 <div class="toast" id="toast" role="status" hidden></div>
+
 
 <script src="/vendor/leaflet.js"></script>
 <script src="/app.js"></script>

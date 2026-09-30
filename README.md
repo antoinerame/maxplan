@@ -21,6 +21,11 @@ plus proche ») et l'installation en application sur téléphone. Le serveur lit
 visiteurs dans `X-Forwarded-For` / `CF-Connecting-IP` pour la limite de requêtes : fais transmettre
 ces en-têtes par le proxy, et n'expose pas le port 8765 directement.
 
+**Retours des visiteurs** : le bouton « Signaler » enregistre les messages dans le volume de données
+(`feedback.jsonl`). Pour les lire, mets un jeton dans `.env` (`FEEDBACK_TOKEN=…`, une longue chaîne
+aléatoire) puis ouvre `https://<ton-domaine>/admin/retours?token=<le jeton>` (page introuvable sans
+le bon jeton).
+
 Chaque visiteur règle son propre profil (abonnement, réductions TER par région), stocké dans son
 navigateur. Une recherche peut aussi se partager par lien (bouton « Partager »).
 
@@ -34,7 +39,13 @@ navigateur. Une recherche peut aussi se partager par lien (bouton « Partager »
   départs en gare, triables (départ, durée, prix), filtre « 100 % gratuits », détail en plan de
   ligne, lien SNCF Connect qui ouvre le bon jour à la bonne heure. Carte masquée par défaut
   (bouton « Voir la carte »).
-- **Calendrier du mois** : pour un départ et une arrivée, le nombre de trajets à 0 € sur chacun des
+- **Correspondances TER automatiques** : l'API propose jusqu'à 3 trajets, on garde le direct sauf si
+  une correspondance fait vraiment gagner du temps. Au-delà de ~4 semaines (horaires TER pas encore
+  publiés par la SNCF), l'horaire TER est estimé d'après le même jour de la semaine précédente.
+- **Trajets de nuit** (train de nuit, ou nuit à attendre en gare) masqués par défaut, dépliables par
+  jour ; les détours absurdes (bien plus longs que le trajet le plus rapide du jour) sont écartés.
+- **Calendrier du mois** :
+ pour un départ et une arrivée, le nombre de trajets à 0 € sur chacun des
   30 jours ; une touche sur un jour lance la recherche.
 - **TGV INOUI et Intercités** (y compris de nuit) ouverts au Max. Le complément TER essaie plusieurs
   arrivées Max par gare-relais (ex. Paris → Lyon en Max puis TER vers Saint-Étienne, à différentes

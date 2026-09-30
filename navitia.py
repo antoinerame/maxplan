@@ -189,14 +189,25 @@ class Navitia:
         dt = ymd.replace("-", "") + "T" + hhmm.replace(":", "") + "00"
         path = (f"/coverage/sncf/journeys?from={urllib.parse.quote(from_id)}"
                 f"&to={urllib.parse.quote(to_id)}&datetime={dt}"
-                f"&datetime_represents=departure&max_nb_journeys=1"
+                f"&datetime_represents=departure&max_nb_journeys=3"
                 f"&max_nb_transfers={int(max_transfers)}"
                 + "".join(f"&forbidden_uris%5B%5D=commercial_mode:{m}" for m in FORBIDDEN_MODES))
         d = self._get(path)
         journeys = d.get("journeys", []) if isinstance(d, dict) else []
         if not journeys:
             return None
-        j = journeys[0]
+
+        def cost(jj):
+            # arrivée (en minutes), chaque correspondance « coûte » 20 min : on ne change de train
+            # que si ça fait vraiment arriver plus tôt, sinon on préfère le trajet direct
+            s = jj.get("arrival_date_time", "")
+            try:
+                arr = int(s[6:8]) * 1440 + int(s[9:11]) * 60 + int(s[11:13])
+            except ValueError:
+                arr = 0
+            return arr + 20 * jj.get("nb_transfers", 0)
+
+        j = min(journeys, key=cost)
 
         def hm(s):  # "20260708T090000" -> "09:00"
             if not s or "T" not in s:
