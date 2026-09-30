@@ -733,7 +733,7 @@
     const margin = minMargin(it);
     const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
       + (est ? '<em class="b est">Horaire TER estimé</em>' : '')
-      + (it.legs.length > 1 ? `<em class="b sep" title="Chaque train se réserve à part : la correspondance n'est pas garantie">${margin != null && margin < 30 ? 'Correspondance courte · billets séparés' : 'Billets séparés'}</em>` : '')
+      + (margin != null && margin < 30 ? `<em class="b sep" title="Moins de 30 min pour changer de train, et la correspondance n'est pas garantie">Correspondance courte</em>` : '')
       + (it.nocturnal ? `<em class="b night">${ICON.moon}Nuit</em>` : '');
     return `<li class="trip${sel ? ' is-sel' : ''}" data-key="${esc(key)}">
       <button class="trip-hit" type="button" aria-expanded="${sel}">
