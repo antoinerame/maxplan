@@ -632,3 +632,7 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 .s-name small .short{color:var(--board-urgent);font-weight:700}
 .sep-note{color:var(--board-text)}
 .sep-note b{color:var(--board-urgent)}
+
+/* rappel : places relevées une fois par jour */
+.fresh{flex-basis:100%;display:flex;align-items:flex-start;gap:8px;margin:0;padding:8px 10px;border-radius:var(--r);background:var(--surface-2);font-size:12.5px;color:var(--ink-2)}
+.fresh svg{width:15px;height:15px;margin-top:1px;flex:none;color:var(--muted)}

@@ -48,6 +48,7 @@
     board: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M8 4v16"/>'),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
     cal: svg('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
+    clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
     walk: svg('<circle cx="13" cy="4.5" r="1.8"/><path d="m9 21 2.5-6 2.5 2v4M8 12l2-4 3.5-.5 2 3.5 2.5 1M11.5 15 10 9.5"/>'),
 
     msg: svg('<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>'),
@@ -670,6 +671,7 @@
         html += `<div class="rt-total">Aller-retour sélectionné : aller ${esc(a.departure)} → ${esc(a.arrival)}, retour ${esc(r.departure)} → ${esc(r.arrival)} · <b>${sum === 0 ? 'gratuit' : `≈ ${nf.format(sum)} €`}</b></div>`;
       }
     }
+    html += `<p class="fresh">${ICON.clock}<span>${freshText()} Certaines places ont pu partir depuis : vérifie sur SNCF Connect avant de compter dessus.</span></p>`;
     if (loaded < total) html += `<div class="progress"><i style="width:${Math.round(loaded / total * 100)}%"></i></div>`;
     html += '</div>';
 
@@ -774,7 +776,7 @@
       let body;
       if (l.free) {
         body = `<div class="s-title"><b>${esc(l.mode)} ${esc(l.train)}</b><em class="b free">Max · 0 €</em></div>
-          <div class="s-sub">${fmtDur(dur)} · 1 réservation Max</div>`;
+          <div class="s-sub">${fmtDur(dur)} · 1 réservation Max · place vue ${esc(freshShort())}, à confirmer</div>`;
       } else {
         const p = l.price || {};
         // étapes du TER / car, avec les passages à pied entre arrêts (gare → gare routière…)
@@ -952,6 +954,7 @@
           <small>Depuis ${esc(data.origin.name)}, ${fmtDay(data.date)} · touche une gare pour voir les trains</small></div>
         <div class="res-tools">${mapBtn()}</div>
         <input class="ex-filter" id="ex-filter" type="search" placeholder="Filtrer les gares…" aria-label="Filtrer les gares">
+        <p class="fresh">${ICON.clock}<span>${freshText()} Certaines places ont pu partir depuis : vérifie sur SNCF Connect.</span></p>
       </div>
       ${data.notice ? `<p class="notice">${esc(data.notice)}</p>` : ''}
       <div class="day-block"><ul class="trips" id="ex-list"></ul></div>`;
@@ -1376,6 +1379,22 @@
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (theme === 'auto') mapTheme(); });
     let rt;
     addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => refreshView(), 200); });
+  }
+
+  function freshShort() {
+    const d = state.meta?.updates?.last ? new Date(state.meta.updates.last) : null;
+    if (!d || isNaN(d)) return 'ce matin';
+    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+    return isoOf(d) === todayISO() ? `à ${hm}` : `le ${fmtShort(isoOf(d))}`;
+  }
+
+  // Les places Max ne sont publiées qu'une fois par jour : on dit quand elles ont été vues
+
+  function freshText() {
+    const d = state.meta?.updates?.last ? new Date(state.meta.updates.last) : null;
+    if (!d || isNaN(d)) return 'Places Max relevées une fois par jour par la SNCF.';
+    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+    return isoOf(d) === todayISO() ? `Places Max relevées aujourd'hui à ${hm}.` : `Places Max relevées le ${fmtShort(isoOf(d))} à ${hm}.`;
   }
 
   // « mises à jour ce matin à 8 h 23 » : heure réelle de la dernière mise à jour de l'open data
