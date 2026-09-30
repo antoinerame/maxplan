@@ -20,6 +20,7 @@ import time
 import unicodedata
 import urllib.request
 import zipfile
+import zlib
 from array import array
 from datetime import date as Date, timedelta
 
@@ -45,6 +46,8 @@ _data = None
 _days = {}                # date AAAAMMJJ -> (connexions triées, heures de départ)
 _memo = {}                # trajets déjà calculés
 _day_locks = {}           # une seule construction à la fois par journée
+DAYS_CACHED = 3           # journées gardées en mémoire (~15 Mo chacune ; relues du disque en ~30 ms)
+PRECOMPUTE_DAYS = 34      # tables préparées la nuit (sur disque, compressées)
 CELL = 0.5                # maillage géographique (degrés) pour ne parcourir que la zone utile
 
 
@@ -95,11 +98,27 @@ def download(fid, url, max_age):
 
 
 # ------------------------------------------------------------------ chargement
+WINDOW_DAYS = 40          # on ne garde que les circulations des 40 prochains jours (les places Max : 30)
+
+
 class _Builder:
     def __init__(self):
         self.areas, self.by_key = [], {}
         self.trips = []           # (mode, réseau, tarif forfaitaire ?, arrêts compacts, clé service)
         self.services = {}        # (flux, service) -> [masque jours, début, fin, ajouts, retraits]
+        today = Date.today()
+        self.w0, self.w1 = _ymd(today - timedelta(days=2)), _ymd(today + timedelta(days=WINDOW_DAYS))
+        self._inwin = {}
+
+    def in_window(self, skey):
+        """Le service circule-t-il au moins un jour dans la fenêtre utile ? (sinon : mémoire inutile)"""
+        r = self._inwin.get(skey)
+        if r is None:
+            s = self.services.get(skey)
+            r = bool(s) and (any(self.w0 <= d <= self.w1 for d in s[3])
+                             or (s[0] and s[1] <= self.w1 and s[2] >= self.w0))
+            self._inwin[skey] = r
+        return r
 
     def area(self, key, name, lat, lon, sncf=False):
         i = self.by_key.get(key)
@@ -111,6 +130,8 @@ class _Builder:
         return i
 
     def add_trip(self, mode, network, flat, stops, skey):
+        if not self.in_window(skey):
+            return
         stops = sorted(s for s in stops if s[2] is not None)   # arrêts sans horaire : ignorés
         if len(stops) < 2:
             return
@@ -261,6 +282,13 @@ def _footpaths(areas):
     return foot
 
 
+def _stamp(loaded):
+    """Version des horaires : dépend des fichiers chargés et du jour (fenêtre de 40 jours), pas de
+    l'heure. Un simple redémarrage réutilise donc les tables préparées la nuit."""
+    sig = "|".join(f"{f}:{int(os.path.getmtime(_path(f)))}:{os.path.getsize(_path(f))}" for f in sorted(loaded))
+    return zlib.crc32((sig + str(_ymd(Date.today()))).encode())
+
+
 def load():
     """Charge tous les réseaux téléchargés. Remplace les données d'un coup (les recherches en cours
     continuent sur l'ancienne version)."""
@@ -277,12 +305,13 @@ def load():
                 loaded.append(fid)
             except Exception as e:
                 print(f"    GTFS {fid} illisible : {e}", flush=True)
-    sncf_dates = sorted(d for (f, _), s in b.services.items() if f == "sncf" for d in s[3])
+    sncf_dates = sorted(d for (f, _), s in b.services.items() if f == "sncf" for d in s[3] if d <= b.w1)
     cell_of = array("i", (_cell(a["lat"], a["lon"]) for a in b.areas))
     new = {"areas": b.areas, "by_key": b.by_key, "trips": b.trips, "services": b.services, "cell_of": cell_of,
            "foot": _footpaths(b.areas), "feeds": loaded,
            "first": sncf_dates[0] if sncf_dates else None, "last": sncf_dates[-1] if sncf_dates else None,
-           "names": [(_fold(a["name"]), i) for i, a in enumerate(b.areas)]}
+           "names": [(_fold(a["name"]), i) for i, a in enumerate(b.areas)], "built": _ymd(Date.today()),
+           "stamp": _stamp(loaded)}
     with _lock:
         _data, _days = new, {}
         _memo.clear()
@@ -349,7 +378,80 @@ def _connections(ymd):
             hit = _days.get(d)
         if hit:
             return hit
-        return _build_day(d, ymd, data)
+        res = _read_day(d, data)  # préparée la nuit ?
+        if res is None:
+            res = _build_day(d, ymd, data)
+            _write_day(d, data, res)
+        return _remember(d, res)
+
+
+def _day_file(d, data):
+    return os.path.join(DIR, "days", f"{data['stamp']}-{d}.bin")
+
+
+def _write_day(d, data, res):
+    """Enregistre la table d'un jour (6 tableaux d'entiers, compressés) pour ne plus la recalculer."""
+    try:
+        os.makedirs(os.path.join(DIR, "days"), exist_ok=True)
+        raw = b"".join(col.tobytes() for col in res[0])
+        tmp = _day_file(d, data) + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(len(res[0][0]).to_bytes(4, "little") + zlib.compress(raw, 1))
+        os.replace(tmp, _day_file(d, data))
+    except OSError:
+        pass
+
+
+def _read_day(d, data):
+    try:
+        with open(_day_file(d, data), "rb") as f:
+            n = int.from_bytes(f.read(4), "little")
+            raw = zlib.decompress(f.read())
+    except (OSError, zlib.error):
+        return None
+    cols = []
+    for j in range(6):
+        col = array("i")
+        col.frombytes(raw[j * 4 * n:(j + 1) * 4 * n])
+        cols.append(col)
+    return tuple(cols), cols[0]
+
+
+def _remember(d, res):
+    with _lock:
+        _days[d] = res
+        while len(_days) > DAYS_CACHED:           # garde les journées les plus récemment utilisées
+            old = next(iter(_days))
+            _days.pop(old)
+            _day_locks.pop(old, None)
+    return res
+
+
+def precompute():
+    """La nuit, après le chargement : prépare sur disque les tables des prochains jours, et supprime
+    celles d'anciennes versions des horaires. En journée, une recherche n'a plus qu'à les relire."""
+    data = _data
+    if not data:
+        return 0
+    folder = os.path.join(DIR, "days")
+    os.makedirs(folder, exist_ok=True)
+    for name in os.listdir(folder):
+        if not name.startswith(f"{data['stamp']}-"):
+            try:
+                os.remove(os.path.join(folder, name))
+            except OSError:
+                pass
+    n = 0
+    for k in range(-1, PRECOMPUTE_DAYS):
+        day = Date.today() + timedelta(days=k)
+        d = _ymd(day)
+        if _data is not data:                     # rechargé entre-temps : on arrête
+            break
+        if not os.path.exists(_day_file(d, data)):
+            _write_day(d, data, _build_day(d, day.isoformat(), data))
+            n += 1
+            time.sleep(0.2)                       # laisse respirer le serveur
+    return n
 
 
 def _build_day(d, ymd, data):
@@ -371,13 +473,7 @@ def _build_day(d, ymd, data):
     # stockage compact : 6 tableaux d'entiers (≈ 24 octets par tronçon au lieu d'un tuple Python)
     cols = tuple(array("i", (c[j] for c in conns)) for j in range(6))
     del conns
-    res = (cols, cols[0])
-    with _lock:
-        if len(_days) > 3:
-            _days.clear()
-            _day_locks.clear()
-        _days[d] = res
-    return res
+    return cols, cols[0]
 
 
 def _csa(conns, deps, src, dst, t0, max_legs, stop_at=None, cells=None):
@@ -536,8 +632,13 @@ def places(q, limit=8):
 
 # ------------------------------------------------------------------ mise à jour
 def refresh_loop():
-    """Au démarrage puis toutes les 6 h : SNCF rafraîchi chaque jour, réseaux régionaux chaque semaine."""
+    """Mise à jour des horaires LA NUIT (1 h – 5 h UTC) pour ne pas charger le serveur en journée :
+    SNCF chaque nuit, réseaux régionaux chaque semaine. Au premier démarrage : tout de suite."""
     while True:
+        night = 1 <= time.gmtime().tm_hour < 5
+        if _data and not night:
+            time.sleep(1800)
+            continue
         changed = not _data
         for fid, (url, _), max_age in [("sncf", feeds.SNCF, 20 * 3600)] + \
                 [(k, v, 7 * 86400) for k, v in feeds.REGIONAL.items()]:
@@ -555,4 +656,13 @@ def refresh_loop():
                       f"({_data['first']} → {_data['last']}, {time.time() - t:.0f} s).", flush=True)
             except Exception as e:
                 print("    Horaires locaux indisponibles :", e, flush=True)
-        time.sleep(6 * 3600)
+        elif _data and _data.get("built") != _ymd(Date.today()):
+            load()                    # pas de nouveau fichier : on fait au moins glisser la fenêtre de 40 jours
+        if _data:
+            t = time.time()
+            n = precompute()
+            if n:
+                print(f"    {n} journées préparées ({time.time() - t:.0f} s).", flush=True)
+
+        time.sleep(1800 if not _data else 4 * 3600)
+

@@ -340,6 +340,12 @@ def search_one_day(src, dst, date, opts):
                     break
             jobs += [(s, fgeo[s], p) for p in kept]
 
+        # Inutile de calculer un TER perdu d'avance : si un trajet 100 % Max (de jour) part au plus tôt
+        # pareil et arrive avant même la gare-relais, le complément serait de toute façon écarté au tri.
+        day_max = [(p[0]["dep"], p[-1]["arr"], len(p)) for p in max_paths if not path_nocturnal(p)]
+        jobs = [j for j in jobs if not any(dep >= j[2][0]["dep"] and arr <= j[2][-1]["arr"] and n <= len(j[2]) + 1
+                                           for dep, arr, n in day_max)]
+
 
         def tail(job):
             s, g, path = job
@@ -435,6 +441,8 @@ def search_one_day(src, dst, date, opts):
     if opts.get("ter_limited"):
         res["ter_notice"] = ("Compléments TER en pause pour toi aujourd'hui : tu as fait beaucoup de recherches "
                              "avec TER. Les trains Max restent affichés ; réessaie demain.")
+    if opts.get("ter_limited") or (opts["ter"] and navitia.over_budget()):
+        res["_nocache"] = True
     if opts["ter"] and navitia.over_budget():
         res["ter_notice"] = ("Compléments TER indisponibles pour le reste de la journée : le site a atteint "
                              "sa limite quotidienne de requêtes à l'API SNCF. Les trains Max restent affichés.")
@@ -531,11 +539,14 @@ def do_search(qs):
         return dict(r, date=day, weekday=core.weekday(day))
 
     days = list(DAY_POOL.map(one, dates)) if len(dates) > 1 else [one(dates[0])]
+    nocache = any([d.pop("_nocache", False) for d in days])
+
     dest_geo = free_place(dst)
     return {
         "mode": "search", "from": src, "to": dst, "prefs": prefs, "days": days,
         "to_coord": dest_geo and {"lat": dest_geo["lat"], "lon": dest_geo["lon"],
                                   "name": nice_place(dest_geo["name"])},
+        "_nocache": nocache,
     }
 
 
@@ -822,7 +833,7 @@ def do_value(qs):
         if ters:
             relays = [t[1] for t in ters]
             ter = {"days": len(ters), "price": round(sum(t[0] for t in ters) / len(ters), 1),
-                   "via": max(set(relays), key=relays.count)}
+                   "via": max(sorted(set(relays)), key=relays.count)}
         return {"days": len(counts), "free_days": sum(1 for c in counts if c), "ter": ter,
 
 
@@ -858,6 +869,35 @@ ROUTES = {
 
 
 # ======================================================================= limiteur de débit
+# Réponses déjà calculées : plusieurs visiteurs qui cherchent la même chose ne coûtent qu'un calcul.
+# Durées courtes : les places Max changent une fois par jour, les horaires la nuit.
+CACHE_TTL = {"/api/search": 900, "/api/calendar": 3600, "/api/value": 3600, "/api/trends": 3600,
+             "/api/explore": 1800, "/api/ideas": 3600}
+_RESP = {}
+_RESP_LOCK = threading.Lock()
+
+
+def cached(path, fn, qs):
+    ttl = CACHE_TTL.get(path)
+    if not ttl:
+        return fn(qs)
+    key = (path, tuple(sorted((k, tuple(v)) for k, v in qs.items() if k != "_ip")))
+    now = time.time()
+    with _RESP_LOCK:
+        hit = _RESP.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    res = fn(qs)
+    if isinstance(res, dict) and res.pop("_nocache", False):
+        return res                     # réponse bridée (budget API) : jamais servie à d'autres
+    with _RESP_LOCK:
+        if len(_RESP) > 3000:
+            for k in [k for k, (t, _) in _RESP.items() if now - t > 900] or list(_RESP)[:1500]:
+                _RESP.pop(k, None)
+        _RESP[key] = (now, res)
+    return res
+
+
 class RateLimiter:
     def __init__(self):
         self.hits = defaultdict(list)
@@ -1040,7 +1080,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "Beaucoup de recherches d'un coup, réessaie dans une minute."},
                                   429, {"Retry-After": "30"})
         try:
-            return self._json(fn(qs))
+            return self._json(cached(u.path, fn, qs))
         except BadRequest as e:
             return self._json({"error": str(e)}, 400)
         except Exception:

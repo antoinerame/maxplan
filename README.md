@@ -28,8 +28,10 @@ dépendance externe).
    atteignables en Max les plus proches, puis le TER ou le car jusqu'à la destination. Ces horaires
    sont calculés **en local** (`gtfs.py`) à partir de l'export GTFS de la SNCF et d'une quarantaine
    de réseaux régionaux de cars (`feeds.py`), avec l'algorithme *Connection Scan* et des
-   correspondances à pied entre arrêts proches. L'API SNCF (Navitia, `navitia.py`) ne sert qu'en
-   secours, sous budget quotidien.
+   correspondances à pied entre arrêts proches. Les horaires sont mis à jour **la nuit**, et les tables
+   de départs des 34 prochains jours sont préparées à ce moment-là (sur disque, compressées) : en
+   journée, une recherche ne fait que les relire. L'API SNCF (Navitia, `navitia.py`) ne sert qu'en
+   secours, sous budget quotidien. Les réponses sont gardées en cache quelques minutes.
 3. **Tri des résultats** : on écarte les options dominées (un trajet gratuit qui part plus tard et
    arrive plus tôt rend l'option payante inutile), les détours absurdes et, par défaut, les nuits en
    train ou en gare ; les trajets à 2 changements ou plus sont repliés.
