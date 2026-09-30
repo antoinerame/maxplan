@@ -14,6 +14,8 @@ import math
 import regions
 
 MIN_FARE = 2.0              # prix plancher d'un trajet
+REGIONAL_COACH_FARE = 3.0   # car régional : la plupart des réseaux ont un tarif unique de 2 à 4 €
+
 GRANDES_LIGNES = ("tgv", "inoui", "intercit", "ouigo", "lyria", "eurostar", "ice ")
 SUBSCRIPTIONS = ("jeune", "senior", "none")
 
@@ -46,10 +48,15 @@ def estimate(sections, prefs):
     """sections : [{mode, dist_km, lat, lon}] ; prefs : {"sub": ..., "ter": {code_region: pct}}."""
     # Un billet TER se paie sur la distance totale (tarif dégressif) ; chaque tronçon garde la
     # réduction de SA région, pondérée par sa longueur. Les réductions s'appliquent au tarif normal.
-    km_sum = disc_km = 0.0
+    km_sum = disc_km = flat = 0.0
     parts = []
     for s in sections:
         km = max(0.0, s.get("dist_km", 0))
+        if s.get("flat_fare"):
+            # cars régionaux (ZOU!, liO, Aléop…) : tarif unique par trajet, pas au kilomètre
+            flat += REGIONAL_COACH_FARE
+            parts.append({"kind": "car", "mode": s.get("network") or s.get("mode")})
+            continue
         if _is_grande_ligne(s.get("mode")):
             pct = 30 if prefs["sub"] in ("jeune", "senior") else 0
             parts.append({"kind": "gl", "mode": s.get("mode"), "pct": pct})
@@ -60,18 +67,23 @@ def estimate(sections, prefs):
         km_sum += km
         disc_km += km * (1 - pct / 100)
 
-    if km_sum <= 0:
+    if km_sum <= 0 and not flat:
         return {"price": 0, "base": 0, "discount_pct": 0, "label": "prix inconnu",
                 "regions": [], "distance_km": 0, "estimated": True}
 
-    ratio = disc_km / km_sum                         # part restant à payer
-    base_total = normal_fare(km_sum)
-    price = 0.0 if ratio < 0.005 else max(0.5, _up(base_total * ratio))
+    ratio = disc_km / km_sum if km_sum else 1.0      # part restant à payer
+    base_total = normal_fare(km_sum) if km_sum else 0.0
+    price = 0.0 if (km_sum and ratio < 0.005) else (max(0.5, _up(base_total * ratio)) if km_sum else 0.0)
+    price = round(price + flat, 1)
+    base_total += flat
 
     # libellé lisible : réseaux + réductions appliquées
     labels, seen = [], set()
     for p in parts:
-        if p["kind"] == "gl":
+        if p["kind"] == "car":
+            key = ("car", p["mode"])
+            txt = f"{p['mode']} ≈ {REGIONAL_COACH_FARE:g} € (car régional, tarif unique)"
+        elif p["kind"] == "gl":
             key = ("gl", p["pct"])
             txt = f"{p['mode']} −{p['pct']} % (Max Avantage)" if p["pct"] else f"{p['mode']} plein tarif"
         else:

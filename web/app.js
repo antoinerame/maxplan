@@ -353,7 +353,7 @@
       if (!items.length) { close(); return; }
       list.innerHTML = items.map((it, i) =>
         `<li role="option" id="${list.id}-${i}" data-i="${i}" aria-selected="${i === active}"><span>${esc(it.name)}</span>` +
-        `<em class="tag ${it.max ? 'max' : 'ter'}">${it.max ? 'Max' : 'TER'}</em></li>`).join('');
+        `<em class="tag ${it.max ? 'max' : 'ter'}">${it.max ? 'Max' : it.car ? 'Car' : 'TER'}</em></li>`).join('');
       list.hidden = false;
       input.setAttribute('aria-expanded', 'true');
       if (active >= 0) input.setAttribute('aria-activedescendant', `${list.id}-${active}`);
@@ -836,8 +836,43 @@
     }
     box.innerHTML = `<div class="cal-head"><b>Trains à 0 € par jour</b><small>100 % Max, sans TER · touche un jour pour voir les trains</small></div>
       <div class="cal-grid">${WD.map(w => `<span class="cal-wd">${w}</span>`).join('')}${cells.join('')}</div>
-      ${ter ? `<p class="cal-msg">Jours hachurés : horaires TER pas encore publiés (complément TER indisponible).</p>` : ''}`;
+      <div class="trends" id="trends"><p class="cal-msg">Chargement des tendances…</p></div>`;
+    loadTrends();
   }
+
+  // Tendances tirées de l'historique des places Max (enregistrées chaque jour par le serveur)
+  const trendsCache = {};
+  async function loadTrends() {
+    const from = stationValue($('#s-from')), to = stationValue($('#s-to'));
+    const box = $('#trends');
+    if (!box || !from || !to) return;
+    const key = `${from}|${to}`;
+    try {
+      trendsCache[key] = trendsCache[key] || await api('/api/trends', { from, to });
+    } catch { box.innerHTML = ''; return; }
+    if ($('#trends') !== box) return;
+    const t = trendsCache[key];
+    if (!t.days || t.days < 7) {
+      box.innerHTML = `<p class="cal-msg"><b>Tendances :</b> MaxPlan enregistre les places Max chaque jour${t.since ? ` (depuis le ${esc(fmtShort(t.since))})` : ''} ; les statistiques de ce trajet (meilleurs jours, heures, quand les places s'ouvrent) apparaîtront après une semaine d'historique.</p>`;
+      return;
+    }
+    const wd = t.weekday || [];
+    const max = Math.max(1, ...wd.filter(x => x != null));
+    const bars = WD.map((w, i) => `<div class="tr-bar"><i style="height:${Math.round(((wd[i] || 0) / max) * 100)}%"></i><b>${wd[i] == null ? '–' : nf.format(wd[i])}</b><span>${w}</span></div>`).join('');
+    // tranches horaires les plus fournies
+    const h = t.hours || [];
+    const total = h.reduce((a, b) => a + b, 0);
+    const slots = [['tôt le matin, avant 9 h', 0, 9], ['en journée, entre 9 h et 14 h', 9, 14], ['l\'après-midi, entre 14 h et 18 h', 14, 18], ['le soir, après 18 h', 18, 24]]
+      .map(([l, a, b]) => [l, h.slice(a, b).reduce((x, y) => x + y, 0)]).sort((x, y) => y[1] - x[1]);
+    const lines = [];
+    if (total) lines.push(`Les trains à 0 € partent surtout <b>${slots[0][0]}</b> (${Math.round(slots[0][1] / total * 100)} %).`);
+    if (t.open_lead != null && t.open_samples >= 5) lines.push(`Les places s'ouvrent en général <b>${t.open_lead} jours avant</b> le départ.`);
+    if (t.still_open_share != null) lines.push(`${Math.round(t.still_open_share * 100)} % restent disponibles jusqu'au départ${t.gone_lead ? ` ; les autres partent vers <b>J-${t.gone_lead}</b>` : ''}.`);
+    box.innerHTML = `<div class="cal-head"><b>Tendances sur ce trajet</b><small>trains directs à 0 €, d'après ${t.days} jours d'historique</small></div>
+      <div class="tr-week" aria-label="Trains à 0 € par jour de la semaine, en moyenne">${bars}</div>
+      ${lines.map(l => `<p class="cal-msg">${l}</p>`).join('')}`;
+  }
+
 
   /* ================================================================== accueil : idées */
 
@@ -977,9 +1012,10 @@
     }
     return vCache[k];
   }
-  function addValueTrip() {
+  function addValueTrip(replace = false) {
     const a = $('#v-from'), b = $('#v-to');
     if (!a.value.trim() || !b.value.trim()) { toast("Indique un départ et une arrivée."); (a.value.trim() ? b : a).focus(); return; }
+    if (replace) vTrips = [];          // « Nouveau trajet » : on repart de zéro avec ce seul trajet
     vTrips.push({
       from: { name: a.value.trim(), label: a.dataset.label || '' }, to: { name: b.value.trim(), label: b.dataset.label || '' },
       n: Number($('#v-n').value) || 2, days: $('#v-days [aria-pressed="true"]')?.dataset.v || 'all', price: null,
@@ -991,6 +1027,8 @@
 
   async function renderValue() {
     const box = $('#value-out');
+    $('#btn-value-new').hidden = !vTrips.length;
+
     if (!vTrips.length) {
       box.innerHTML = `<div class="empty"><h2>Ajoute un premier trajet</h2><p>Par exemple chez toi ↔ tes études, ou chez tes parents, avec le nombre d'allers-retours que tu fais par mois.</p></div>`;
       return;
@@ -1172,6 +1210,7 @@
       if (b) $$('#v-days button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
     });
     $('#form-value').addEventListener('submit', e => { e.preventDefault(); addValueTrip(); });
+    $('#btn-value-new').addEventListener('click', () => addValueTrip(true));
     $('#value-out').addEventListener('click', e => {
       const del = e.target.closest('[data-v-del]');
       if (del) { vTrips.splice(Number(del.dataset.vDel), 1); store.set('valueTrips', vTrips); renderValue(); }

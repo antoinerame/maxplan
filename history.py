@@ -117,3 +117,56 @@ def size_info():
         runs = con.execute("SELECT COUNT(*), MIN(day), MAX(day) FROM runs").fetchone()
     return {"rows": rows, "runs": runs[0], "first": runs[1], "last": runs[2],
             "mb": round(os.path.getsize(DB_FILE) / 1e6, 1) if os.path.exists(DB_FILE) else 0}
+
+
+def od_trends(origins, targets):
+    """Tendances d'une liaison (trains directs Max) tirées de l'historique des jours déjà passés :
+    trains à 0 € par jour de la semaine, heures de départ, et quand les places s'ouvrent / disparaissent."""
+    with _lock, _db() as con:
+        runs = [r[0] for r in con.execute("SELECT day FROM runs ORDER BY day")]
+        if not runs:
+            return {"days": 0}
+        ids = dict(con.execute("SELECT label, id FROM stations").fetchall())
+        o_ids = [ids[x] for x in origins if x in ids]
+        d_ids = [ids[x] for x in targets if x in ids]
+        first_run, today = runs[0], Date.today().isoformat()
+        if not o_ids or not d_ids:
+            return {"days": 0, "since": first_run}
+        q = (f"SELECT travel_date, train, MIN(dep), MIN(first_seen), MAX(last_seen) FROM seats "
+             f"WHERE o IN ({','.join('?' * len(o_ids))}) AND d IN ({','.join('?' * len(d_ids))}) "
+             f"AND travel_date >= ? AND travel_date < ? GROUP BY travel_date, train")
+        rows = con.execute(q, [*o_ids, *d_ids, first_run, today]).fetchall()
+    days, d = [], Date.fromisoformat(first_run)
+    while d.isoformat() < today:
+        days.append(d)
+        d = Date.fromordinal(d.toordinal() + 1)
+    per_day = {}
+    hours = [0] * 24
+    opened, gone = [], []
+    for travel, _, dep, first, last in rows:
+        per_day[travel] = per_day.get(travel, 0) + 1
+        if dep is not None:
+            hours[(dep // 60) % 24] += 1
+        t = Date.fromisoformat(travel)
+        # ouverture : seulement si on observait déjà ce jour de voyage 30 jours avant (sinon biaisé)
+        if (t - Date.fromisoformat(first_run)).days >= 30:
+            opened.append((t - Date.fromisoformat(first)).days)
+        lead_gone = (t - Date.fromisoformat(last)).days
+        gone.append(lead_gone)
+    wd_sum, wd_n = [0] * 7, [0] * 7
+    for x in days:
+        wd_sum[x.weekday()] += per_day.get(x.isoformat(), 0)
+        wd_n[x.weekday()] += 1
+
+    def median(v):
+        v = sorted(v)
+        return v[len(v) // 2] if v else None
+
+    return {
+        "since": first_run, "days": len(days), "trains": len(rows),
+        "weekday": [round(s / n, 1) if n else None for s, n in zip(wd_sum, wd_n)],
+        "hours": hours,
+        "open_lead": median(opened), "open_samples": len(opened),
+        "gone_lead": median([g for g in gone if g > 0]),
+        "still_open_share": round(sum(1 for g in gone if g <= 0) / len(gone), 2) if gone else None,
+    }

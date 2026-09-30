@@ -42,7 +42,7 @@ import regions
 import tgvmax_core as core
 from navitia import navitia
 
-VERSION = "3.4"
+VERSION = "3.6"
 WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web"))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
@@ -272,7 +272,8 @@ def tail_too_slow(jr, ready, g, dest):
     if jr is None:
         return True
     km = core.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
-    return tail_end(jr, ready) > max(90, 30 + 1.2 * km)
+    # au-delà de 150 km, un car régional manquant ne changerait pas grand-chose : pas de secours
+    return km <= 150 and tail_end(jr, ready) > max(90, 30 + 1.2 * km)
 
 
 def ter_estimated_notice():
@@ -588,7 +589,8 @@ def do_stations(qs):
             key = core.normalize(nice_place(p["name"]))
             if key not in seen:
                 seen.add(key)
-                out.append({"label": p["name"], "name": nice_place(p["name"]), "max": False})
+                out.append({"label": p["name"], "name": nice_place(p["name"]), "max": False,
+                            "car": str(p.get("id", "")).startswith("gtfs:")})
     return out[:10]
 
 
@@ -604,6 +606,15 @@ def do_nearest(qs):
             ranked.append((core.haversine_km(lat, lon, g["lat"], g["lon"]), s, g))
     ranked.sort(key=lambda x: x[0])
     return [{"label": s, "name": display_name(s, g), "km": round(d)} for d, s, g in ranked[:3]]
+
+
+def do_trends(qs):
+    """Tendances d'une liaison d'après l'historique des places Max (statistiques)."""
+    src, dst = _place(qs, "from"), _place(qs, "to")
+    if not src or not dst:
+        raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
+    known = set(core.all_stations())
+    return history.od_trends(core.resolve_city(src, known), core.resolve_city(dst, known))
 
 
 def do_calendar(qs):
@@ -839,6 +850,8 @@ ROUTES = {
     "/api/calendar": ("calendar", do_calendar),
     "/api/ideas": ("calendar", do_ideas),
     "/api/value": ("calendar", do_value),
+    "/api/trends": ("calendar", do_trends),
+
 
     "/api/meta": (None, do_meta),
 }
@@ -897,8 +910,13 @@ class Handler(BaseHTTPRequestHandler):
         """IP du visiteur. Derrière le reverse proxy, c'est la DERNIÈRE entrée de X-Forwarded-For (ajoutée
         par le proxy) qui est fiable : les précédentes peuvent être inventées par le visiteur pour
         contourner la limite de requêtes. PROXY_HOPS = nombre de proxys de confiance (0 = aucun)."""
+        if config.CLIENT_IP_HEADER:          # derrière Cloudflare : « CF-Connecting-IP »
+            ip = self.headers.get(config.CLIENT_IP_HEADER, "").strip()
+            if ip:
+                return ip[:64]
         hops = config.PROXY_HOPS
         xff = [x.strip() for x in self.headers.get("X-Forwarded-For", "").split(",") if x.strip()]
+
         if hops and xff:
             return xff[-min(hops, len(xff))][:64]
         return self.client_address[0]

@@ -66,3 +66,7 @@ NAVITIA_PER_IP_DAILY = int(os.environ.get("NAVITIA_PER_IP_DAILY", "400"))   # co
 # Nombre de reverse proxys de confiance devant le serveur (pour lire l'IP réelle dans
 # X-Forwarded-For). 1 derrière nginx/Caddy/Traefik ; 0 si le serveur est exposé directement.
 PROXY_HOPS = int(os.environ.get("PROXY_HOPS", "1"))
+# En-tête donnant l'IP réelle du visiteur, posé par un service de confiance devant le site.
+# Derrière Cloudflare (tunnel ou proxy) : CLIENT_IP_HEADER=CF-Connecting-IP. À ne régler que si le
+# site n'est joignable QUE par Cloudflare (sinon n'importe qui pourrait inventer cet en-tête).
+CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip()
