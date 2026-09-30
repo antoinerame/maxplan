@@ -75,7 +75,7 @@ def snapshot(edges_by_date, today=None):
     return n
 
 
-def od_stats(origins, targets, since=None):
+def od_stats(origins, targets, since=None, kind="all"):
     """Statistiques passées d'une liaison (trains directs Max) : par jour de voyage déjà écoulé,
     le nombre de trains ouverts à 0 € à un moment ou un autre."""
     with _lock, _db() as con:
@@ -96,7 +96,9 @@ def od_stats(origins, targets, since=None):
     d = Date.fromisoformat(since or first_run)
     end = Date.fromisoformat(today)
     while d < end:
-        days.append(d.isoformat())
+        if kind == "all" or (d.weekday() >= 5) == (kind == "weekend"):
+            days.append(d.isoformat())
+
         d = Date.fromordinal(d.toordinal() + 1)
     counts = [per_day.get(x, 0) for x in days]
     by_wd = {}

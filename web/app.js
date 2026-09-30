@@ -772,7 +772,7 @@
     });
     const last = it.legs[it.legs.length - 1];
     h += `<li class="stop last"><span class="s-time">${esc(last.arr)}${last.arr_day ? `<sup>+${last.arr_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(last.to_name)}<small>arrivée</small></span></li>`;
-    return h + `</ol><p class="book-note">Le lien SNCF Connect n'ouvre pas toujours le bon trajet (surtout dans l'appli) : si besoin, cherche le train à la main avec son numéro et son heure de départ.</p></div>`;
+    return h + `</ol><p class="book-note">Le lien SNCF Connect n'ouvre pas toujours le bon trajet (ça dépend de leur site) : si besoin, cherche le train à la main avec son numéro et son heure de départ.</p></div>`;
 
   }
 
@@ -1002,20 +1002,28 @@
     const res = await Promise.all(vTrips.map(loadValue));
 
     const maxPrice = SUB_PRICE[profile.sub] || SUB_PRICE.jeune;
-    let totNormal = 0, totAv = 0, totMax = 0, missing = 0;
+    let totNormal = 0, totAv = 0, totMax = 0, missing = 0, anyHist = false, anyForward = false;
     const cards = vTrips.map((t, i) => {
       const r = res[i];
       if (r.error) return `<article class="fav vcard">${head(t)}<p class="cal-msg err">${esc(r.error)}</p></article>`;
       const legs = [r.out, r.ret];
-      const p = legs.map(l => (l.days ? l.free_days / l.days : 0));
+      // chances de trouver un train à 0 € : l'historique (jours déjà passés, places ouvertes à un moment
+      // ou un autre) dès qu'il couvre 2 semaines ; avant, les places ouvertes aujourd'hui sur 30 jours
+      const useHist = legs.every(l => l.history && l.history.days >= 14);
+      const p = legs.map(l => (useHist ? l.history.days_with_free / l.history.days : l.days ? l.free_days / l.days : 0));
+      // jours sans 100 % Max mais avec Max + TER : on ne paie que le TER
+      const pt = legs.map((l, k) => (l.ter && l.days ? Math.min(l.ter.days / l.days, 1 - p[k]) : 0));
+      const terPrice = legs.map(l => l.ter?.price ?? null);
+      if (useHist) anyHist = true; else anyForward = true;
       const manual = t.price ? { normal: { typical: t.price, min: t.price, max: t.price }, avantage: { typical: t.price, min: t.price, max: t.price } } : null;
       const price = legs.map(l => l.prices || manual);
       let body = `<div class="v-chances">${legs.map((l, k) => `<div class="v-chance">
           <span>${k ? 'Retour' : 'Aller'} à 0 €</span><b>${l.days ? pct(p[k]) : '?'}</b>
-          <i><em style="width:${Math.round(p[k] * 100)}%"></em></i>
-          <small>${l.free_days} jours sur ${l.days}${DAYS_TXT[t.days]} · ${nf.format(l.avg_trains)} train${l.avg_trains >= 2 ? 's' : ''}/jour en moyenne</small></div>`).join('')}</div>`;
-      const hist = r.out.history;
-      if (hist && hist.days >= 7) body += `<p class="v-note">Historique depuis le ${esc(fmtShort(hist.since))} : ${hist.days_with_free} jours sur ${hist.days} avec des trains directs à 0 €, ${nf.format(hist.avg_trains)} par jour en moyenne.</p>`;
+          <i><em style="width:${Math.round(p[k] * 100)}%"></em><em class="ter" style="width:${Math.round(pt[k] * 100)}%"></em></i>
+          <small>${useHist
+            ? `${l.history.days_with_free} jours sur ${l.history.days}${DAYS_TXT[t.days]} depuis le ${esc(fmtShort(l.history.since))} (historique, trains directs)`
+            : `${l.free_days} jours sur ${l.days}${DAYS_TXT[t.days]} à venir · ${nf.format(l.avg_trains)} train${l.avg_trains >= 2 ? 's' : ''}/jour en moyenne`}</small>
+          ${pt[k] ? `<small class="v-ter">+ ${pct(pt[k])} des jours en Max jusqu'à ${esc(l.ter.via)} puis TER : ≈ ${nf.format(l.ter.price)} € seulement</small>` : ''}</div>`).join('')}</div>`;
       if (price.some(x => !x)) {
         missing++;
         body += `<label class="v-price"><span>Pas de tarif officiel pour ce trajet (correspondance ou petite gare). Combien paies-tu d'habitude un aller simple ?</span>
@@ -1025,11 +1033,16 @@
       const n = t.n;
       const normal = n * (price[0].normal.typical + price[1].normal.typical);
       const avantage = n * (price[0].avantage.typical + price[1].avantage.typical);
-      const withMax = n * ((1 - p[0]) * price[0].avantage.typical + (1 - p[1]) * price[1].avantage.typical);
+      const legCost = k => (1 - p[k] - pt[k]) * price[k].avantage.typical
+        + pt[k] * Math.min(terPrice[k] ?? price[k].avantage.typical, price[k].avantage.typical);
+      const withMax = n * (legCost(0) + legCost(1));
       totNormal += normal; totAv += avantage; totMax += withMax;
+      const saved = Math.min(normal, avantage) - withMax;
       const pr = price[0];
       body += `<p class="v-note">Billet payant, aller simple en 2de classe : ${t.price ? `${eur(t.price)} (ton prix)` : `de ${eur(pr.normal.min)} à ${eur(pr.normal.max)} plein tarif, de ${eur(pr.avantage.min)} à ${eur(pr.avantage.max)} avec carte Avantage ou Max${pr.cap ? ` (prix plafonné à ${pr.cap} €)` : ''}`}.</p>
-        <div class="v-month"><span>Par mois</span><b>≈ ${eur(normal)}</b> plein tarif · <b>≈ ${eur(avantage)}</b> avec carte Avantage · <b>≈ ${eur(withMax)}</b> de billets avec Max (les jours sans place à 0 €)</div>`;
+        <div class="v-month"><span>Billets par mois sur ce trajet</span><b>≈ ${eur(normal)}</b> plein tarif · <b>≈ ${eur(avantage)}</b> avec carte Avantage · <b>≈ ${eur(withMax)}</b> avec Max (TER ou billet les jours sans place à 0 €)
+
+          <em class="v-saved">Max fait économiser ≈ ${eur(Math.max(0, saved))} de billets par mois sur ce trajet</em></div>`;
       return `<article class="fav vcard">${head(t)}${body}</article>`;
     });
 
@@ -1041,11 +1054,14 @@
       const sub = profile.sub === 'senior' ? 'Max Senior' : 'Max Jeune';
       const title = diff > 5 ? `${sub} te fait économiser ≈ ${eur(diff)} par mois` : diff < -5 ? `${sub} te coûterait ≈ ${eur(-diff)} de plus par mois` : `${sub} ou pas, ça revient à peu près au même`;
       verdict = `<div class="verdict ${diff > 5 ? 'good' : diff < -5 ? 'bad' : ''}">
+        <small class="v-scope">${vTrips.length > 1 ? `Pour l'ensemble de tes ${vTrips.length} trajets` : 'Pour ce trajet'} (l'abonnement couvre tous les trajets)</small>
         <h3>${title}</h3>
         ${diff > 5 ? `<p class="v-big">soit ≈ ${eur(diff * 12)} par an</p>` : ''}
-        <p>Avec ${sub} : ${eur(maxPrice)} d'abonnement + ≈ ${eur(totMax)} de billets les jours sans place à 0 € = <b>≈ ${eur(withMax)} par mois</b>.</p>
+        <p>Avec ${sub} : ${eur(maxPrice)} d'abonnement + ≈ ${eur(totMax)} de billets ou de TER les jours sans place à 0 € = <b>≈ ${eur(withMax)} par mois</b>.</p>
         <p>Sans abonnement : <b>≈ ${eur(noMax)} par mois</b> ${noMax === totNormal ? 'au plein tarif' : `avec une carte Avantage (${AVANTAGE_YEAR} €/an comprise)`}.</p>
-        <p class="v-note">Estimation : prix « typique » = milieu de la fourchette officielle SNCF ; on suppose que tu peux prendre n'importe quel train de la journée${missing ? ` ; ${plural(missing, 'trajet sans prix n\'est pas compté', 'trajets sans prix ne sont pas comptés')}` : ''}. Abonnement Max : 3 mois d'engagement minimum. Les places Max partent vite : réserve dès l'ouverture, jusqu'à 30 jours avant.</p>
+        ${anyForward ? `<p class="v-warn"><b>Estimation encore prudente.</b> Pour l'instant on ne voit que les places Max ouvertes <em>aujourd'hui</em> sur les 30 prochains jours. Or la SNCF en débloque régulièrement au fil des jours, parfois la veille : un trajet qui paraît vide dans deux semaines ne le restera pas forcément. MaxPlan enregistre chaque jour les places ouvertes ; dès 2 semaines d'historique, le calcul s'appuiera sur ce qui s'est vraiment passé, et sera plus juste.</p>` : ''}
+        <p class="v-note">Estimation : prix « typique » = milieu de la fourchette officielle SNCF ;
+ on suppose que tu peux prendre n'importe quel train de la journée${missing ? ` ; ${plural(missing, 'trajet sans prix n\'est pas compté', 'trajets sans prix ne sont pas comptés')}` : ''}. Abonnement Max : 3 mois d'engagement minimum. Les places Max partent vite : réserve dès l'ouverture, jusqu'à 30 jours avant.</p>
       </div>`;
     }
     box.innerHTML = verdict + `<div class="value-list">${cards.join('')}</div>`;
@@ -1132,7 +1148,8 @@
     setStation(b, av, al);
     $('#btn-swap').classList.toggle('spin');
     syncFav();
-    if (stationValue(a) && stationValue(b)) runSearch();   // relance directement dans l'autre sens
+    if (!$('#cal').hidden) { openCal(); return; }          // calendrier ouvert : on le montre dans l'autre sens
+    if (stationValue(a) && stationValue(b)) runSearch();   // sinon on relance directement dans l'autre sens
   }
 
   function bindUI() {

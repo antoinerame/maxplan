@@ -662,24 +662,50 @@ def do_value(qs):
              if kind == "all" or (weekday_idx(d) >= 5) == (kind == "weekend")]
     known = set(core.all_stations())
 
-    def count(date, a, b):
+    def ter_option(edges, stations, origins, targets, dest):
+        """Les jours sans trajet 100 % Max : peut-on aller en Max jusqu'à une gare proche puis finir en
+        TER ? Prix du TER estimé sur la distance (sans appel à l'API SNCF, pour ne pas user le quota)."""
+        if not dest:
+            return None
+        tset = set(targets)
+        o_km = min((core.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
+                    for g in (navitia._cache.get(o) for o in origins) if g), default=None)
+        best = None
+        for s, (_, path) in core.reachable(edges, origins, max_conn=1).items():
+            g = navitia._cache.get(s)
+            if s in tset or not g or path_nocturnal(path):
+                continue
+            km = core.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
+            if km > config.TER_MAX_DISTANCE_KM or (o_km is not None and km >= o_km):
+                continue
+            price = pricing.estimate([{"mode": "TER", "dist_km": km, "lat": (g["lat"] + dest["lat"]) / 2,
+                                       "lon": (g["lon"] + dest["lon"]) / 2}], prefs)["price"]
+            if best is None or price < best[0]:
+                best = (price, display_name(s, g))
+        return best
+
+    def count(date, a, b, dest):
+        """(trajets 100 % Max, durée du plus rapide direct, (prix TER, gare-relais) si Max + TER possible)."""
         if senior_weekend(prefs, date):
-            return 0
+            return 0, None, None
         try:
             edges = edges_for(date)
         except Exception:
             return None
         stations = {e["o"] for e in edges} | {e["d"] for e in edges}
-        paths = [p for p in core.search(edges, core.resolve_city(a, stations), core.resolve_city(b, stations),
-                                        max_conn=1, max_results=80) if not path_nocturnal(p)]
+        origins, targets = core.resolve_city(a, stations), core.resolve_city(b, stations)
+        paths = [p for p in core.search(edges, origins, targets, max_conn=1, max_results=80) if not path_nocturnal(p)]
         its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p} for p in paths])
         direct = [x["_arr"] - x["_dep"] for x in its if len(x["legs"]) == 1]
-        return len(its), min(direct, default=None)
+        ter = None if its else ter_option(edges, stations, origins, targets, dest)
+        return len(its), min(direct, default=None), ter
 
     def direction(a, b):
-        got = [c for c in DAY_POOL.map(lambda d: count(d, a, b), dates) if c is not None]
+        dest = dest_place(b, core.resolve_city(b, known), known)
+        got = [c for c in DAY_POOL.map(lambda d: count(d, a, b, dest), dates) if c is not None]
         counts = [c[0] for c in got]
         durations = [c[1] for c in got if c[1]]
+        ters = [c[2] for c in got if c[2]]
         origins, targets = core.resolve_city(a, known), core.resolve_city(b, known)
         try:
             prices = fares.price_range(origins, targets)
@@ -693,10 +719,16 @@ def do_value(qs):
             av = prices["avantage"]
             prices["avantage"] = {k: min(v, cap) for k, v in av.items()}
             prices["cap"] = cap
-        return {"days": len(counts), "free_days": sum(1 for c in counts if c),
+        ter = None
+        if ters:
+            relays = [t[1] for t in ters]
+            ter = {"days": len(ters), "price": round(sum(t[0] for t in ters) / len(ters), 1),
+                   "via": max(set(relays), key=relays.count)}
+        return {"days": len(counts), "free_days": sum(1 for c in counts if c), "ter": ter,
+
 
                 "avg_trains": round(sum(counts) / len(counts), 1) if counts else 0,
-                "prices": prices, "history": history.od_stats(origins, targets)}
+                "prices": prices, "history": history.od_stats(origins, targets, kind=kind)}
 
     return {"from": src, "to": dst, "days_kind": kind, "out": direction(src, dst), "ret": direction(dst, src)}
 
