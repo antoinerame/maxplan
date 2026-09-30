@@ -1028,7 +1028,7 @@
       const withMax = n * ((1 - p[0]) * price[0].avantage.typical + (1 - p[1]) * price[1].avantage.typical);
       totNormal += normal; totAv += avantage; totMax += withMax;
       const pr = price[0];
-      body += `<p class="v-note">Billet payant, aller simple en 2de classe : ${t.price ? `${eur(t.price)} (ton prix)` : `de ${eur(pr.normal.min)} à ${eur(pr.normal.max)} plein tarif, de ${eur(pr.avantage.min)} à ${eur(pr.avantage.max)} avec carte Avantage ou Max`}.</p>
+      body += `<p class="v-note">Billet payant, aller simple en 2de classe : ${t.price ? `${eur(t.price)} (ton prix)` : `de ${eur(pr.normal.min)} à ${eur(pr.normal.max)} plein tarif, de ${eur(pr.avantage.min)} à ${eur(pr.avantage.max)} avec carte Avantage ou Max${pr.cap ? ` (prix plafonné à ${pr.cap} €)` : ''}`}.</p>
         <div class="v-month"><span>Par mois</span><b>≈ ${eur(normal)}</b> plein tarif · <b>≈ ${eur(avantage)}</b> avec carte Avantage · <b>≈ ${eur(withMax)}</b> de billets avec Max (les jours sans place à 0 €)</div>`;
       return `<article class="fav vcard">${head(t)}${body}</article>`;
     });
@@ -1045,7 +1045,7 @@
         ${diff > 5 ? `<p class="v-big">soit ≈ ${eur(diff * 12)} par an</p>` : ''}
         <p>Avec ${sub} : ${eur(maxPrice)} d'abonnement + ≈ ${eur(totMax)} de billets les jours sans place à 0 € = <b>≈ ${eur(withMax)} par mois</b>.</p>
         <p>Sans abonnement : <b>≈ ${eur(noMax)} par mois</b> ${noMax === totNormal ? 'au plein tarif' : `avec une carte Avantage (${AVANTAGE_YEAR} €/an comprise)`}.</p>
-        <p class="v-note">Estimation : prix « typique » = milieu de la fourchette officielle SNCF ; on suppose que tu peux prendre n'importe quel train de la journée${missing ? ` ; ${plural(missing, 'trajet sans prix n\'est pas compté', 'trajets sans prix ne sont pas comptés')}` : ''}. Les places Max partent vite : réserve dès l'ouverture, jusqu'à 30 jours avant.</p>
+        <p class="v-note">Estimation : prix « typique » = milieu de la fourchette officielle SNCF ; on suppose que tu peux prendre n'importe quel train de la journée${missing ? ` ; ${plural(missing, 'trajet sans prix n\'est pas compté', 'trajets sans prix ne sont pas comptés')}` : ''}. Abonnement Max : 3 mois d'engagement minimum. Les places Max partent vite : réserve dès l'ouverture, jusqu'à 30 jours avant.</p>
       </div>`;
     }
     box.innerHTML = verdict + `<div class="value-list">${cards.join('')}</div>`;

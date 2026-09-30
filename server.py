@@ -672,17 +672,29 @@ def do_value(qs):
         stations = {e["o"] for e in edges} | {e["d"] for e in edges}
         paths = [p for p in core.search(edges, core.resolve_city(a, stations), core.resolve_city(b, stations),
                                         max_conn=1, max_results=80) if not path_nocturnal(p)]
-        return len(drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p}
-                                   for p in paths]))
+        its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p} for p in paths])
+        direct = [x["_arr"] - x["_dep"] for x in its if len(x["legs"]) == 1]
+        return len(its), min(direct, default=None)
 
     def direction(a, b):
-        counts = [c for c in DAY_POOL.map(lambda d: count(d, a, b), dates) if c is not None]
+        got = [c for c in DAY_POOL.map(lambda d: count(d, a, b), dates) if c is not None]
+        counts = [c[0] for c in got]
+        durations = [c[1] for c in got if c[1]]
         origins, targets = core.resolve_city(a, known), core.resolve_city(b, known)
         try:
             prices = fares.price_range(origins, targets)
         except Exception:
             prices = None
+        if prices and durations:
+            # Carte Avantage / avantage MAX : prix plafonnés en 2de classe selon la durée du trajet direct
+            # (49 € < 1 h 30, 69 € jusqu'à 3 h, 89 € au-delà ; toujours en vigueur en 2026, sans garantie)
+            d = min(durations)
+            cap = 49 if d < 90 else 69 if d <= 180 else 89
+            av = prices["avantage"]
+            prices["avantage"] = {k: min(v, cap) for k, v in av.items()}
+            prices["cap"] = cap
         return {"days": len(counts), "free_days": sum(1 for c in counts if c),
+
                 "avg_trains": round(sum(counts) / len(counts), 1) if counts else 0,
                 "prices": prices, "history": history.od_stats(origins, targets)}
 
