@@ -508,7 +508,7 @@
   function daysBetween(fd, td) {
     if (td < fd) [fd, td] = [td, fd];
     const out = [];
-    for (let d = fd; d <= td && out.length < 31; d = addDays(d, 1)) out.push(d);
+    for (let d = fd; d <= td && out.length < 14; d = addDays(d, 1)) out.push(d);   // 2 semaines max par sens
     return out;
   }
 

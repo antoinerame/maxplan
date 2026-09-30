@@ -307,6 +307,9 @@ def search_one_day(src, dst, date, opts):
                 if len(kept) >= quota:
                     break
             jobs += [(s, fgeo[s], p) for p in kept]
+        if jobs and not IP_BUDGET.take(opts.get("ip", ""), len(jobs)):
+            jobs = []
+            opts["ter_limited"] = True
 
         def tail(job):
             s, g, path = job
@@ -387,12 +390,57 @@ def search_one_day(src, dst, date, opts):
         res["night_itineraries"] = sorted(night, key=order)
     if any(it.get("estimated_schedule") for it in shown + night):
         res["ter_notice"] = ter_estimated_notice()
+    if opts.get("ter_limited"):
+        res["ter_notice"] = ("Compléments TER en pause pour toi aujourd'hui : tu as fait beaucoup de recherches "
+                             "avec TER. Les trains Max restent affichés ; réessaie demain.")
+    if opts["ter"] and navitia.over_budget():
+        res["ter_notice"] = ("Compléments TER indisponibles pour le reste de la journée : le site a atteint "
+                             "sa limite quotidienne de requêtes à l'API SNCF. Les trains Max restent affichés.")
     return res
 
 
 # ======================================================================= endpoints
 def _p(qs, name, default=""):
-    return (qs.get(name, [default])[0] or default).strip()
+    return (qs.get(name, [default])[0] or default).strip()[:200]
+
+
+def _place(qs, name, default=""):
+    """Nom de gare ou de ville saisi : borné (longueur, nombre de mots) pour que personne ne puisse
+    déclencher des dizaines de requêtes de géocodage avec un texte à rallonge."""
+    v = _p(qs, name, default)
+    if len(v) > 80 or len(v.split()) > 8:
+        raise BadRequest("Nom de gare trop long.")
+    return v
+
+
+class IPBudget:
+    """Requêtes à l'API SNCF consommées par visiteur et par jour (en plus du budget global)."""
+
+    def __init__(self):
+        self.day, self.used, self.lock = "", {}, threading.Lock()
+
+    def take(self, ip, n):
+        today = time.strftime("%Y-%m-%d")
+        with self.lock:
+            if today != self.day:
+                self.day, self.used = today, {}
+            if self.used.get(ip, 0) + n > config.NAVITIA_PER_IP_DAILY:
+                return False
+            self.used[ip] = self.used.get(ip, 0) + n
+            return True
+
+
+IP_BUDGET = IPBudget()
+
+
+def check_date(d):
+    """Date au bon format ET couverte par l'open data (sinon on remplirait les caches pour rien)."""
+    if not DATE_RE.match(d):
+        raise BadRequest("Date invalide (format attendu AAAA-MM-JJ).")
+    dates = core.dataset_dates()
+    if dates and not (dates[0] <= d <= dates[-1]):
+        raise BadRequest(f"Pas de données Max pour le {d} : elles vont du {dates[0]} au {dates[-1]}.")
+    return d
 
 
 def _int(qs, name, default, lo, hi):
@@ -408,13 +456,11 @@ def _flag(qs, name, default):
 
 
 def do_search(qs):
-    src, dst = _p(qs, "from"), _p(qs, "to")
+    src, dst = _place(qs, "from"), _place(qs, "to")
     if not src or not dst:
         raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
-    fd = _p(qs, "from_date")
-    td = _p(qs, "to_date") or fd
-    if not DATE_RE.match(fd) or not DATE_RE.match(td):
-        raise BadRequest("Date invalide (format attendu AAAA-MM-JJ).")
+    fd = check_date(_p(qs, "from_date"))
+    td = check_date(_p(qs, "to_date") or fd)
     if td < fd:
         fd, td = td, fd
     dates = list(core.daterange(fd, td))
@@ -426,7 +472,7 @@ def do_search(qs):
     prefs = pricing.prefs_from_qs(qs)
     base = {
         "prefs": prefs, "maxconn": _int(qs, "maxconn", 3, 0, 3),
-        "ter": _flag(qs, "ter", True), "ter_transfers": _int(qs, "ter_transfers", 3, 0, 3),
+        "ter": _flag(qs, "ter", True), "ter_transfers": 3, "ip": _p(qs, "_ip"),
 
         "nights": _flag(qs, "nights", False),
     }
@@ -452,9 +498,7 @@ def do_search(qs):
 
 
 def do_explore(qs):
-    src, date = _p(qs, "from", "paris"), _p(qs, "date")
-    if not DATE_RE.match(date):
-        raise BadRequest("Date invalide (format attendu AAAA-MM-JJ).")
+    src, date = _place(qs, "from", "paris"), check_date(_p(qs, "date"))
     prefs = pricing.prefs_from_qs(qs)
     edges = [] if senior_weekend(prefs, date) else edges_for(date)
     stations = {e["o"] for e in edges} | {e["d"] for e in edges}
@@ -495,7 +539,8 @@ def do_stations(qs):
             seen.add(key)
             out.append({"label": label, "name": display_name(label, navitia._cache.get(label) or None),
                         "max": True})
-    if kind == "dest":  # destinations : aussi des lieux hors réseau Max (ex. Manosque)
+    if kind == "dest" and len(out) < 3:  # peu de gares Max : aussi des lieux hors réseau Max (ex. Manosque)
+
         for p in navitia.places(q, limit=6):
             key = core.normalize(nice_place(p["name"]))
             if key not in seen:
@@ -520,7 +565,7 @@ def do_nearest(qs):
 
 def do_calendar(qs):
     """Nombre de trajets 100 % Max (sans TER) pour chaque jour de l'open data : le calendrier du mois."""
-    src, dst = _p(qs, "from"), _p(qs, "to")
+    src, dst = _place(qs, "from"), _place(qs, "to")
     if not src or not dst:
         raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
     prefs = pricing.prefs_from_qs(qs)
@@ -572,6 +617,8 @@ def save_feedback(data):
         "version": VERSION,
     }
     with _FEEDBACK_LOCK:
+        if os.path.exists(FEEDBACK_FILE) and os.path.getsize(FEEDBACK_FILE) > 5_000_000:
+            raise BadRequest("La boîte à messages est pleine pour le moment, réessaie plus tard.")
         with open(FEEDBACK_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return {"ok": True}
@@ -592,7 +639,7 @@ def feedback_page():
         f"<time>{html.escape(r.get('ts', ''))}</time></header><p>{html.escape(r.get('message', ''))}</p>"
         + (f"<small>Contact : {html.escape(r['contact'])}</small>" if r.get("contact") else "")
         + (f"<small>Page : <a href=\"{html.escape(r['page'])}\">{html.escape(r['page'])}</a></small>"
-           if str(r.get("page", "")).startswith("/") else "")
+           if str(r.get("page", "")).startswith("/") and not str(r.get("page", "")).startswith("//") else "")
         + "</article>" for r in reversed(rows))
     return ("<!DOCTYPE html><html lang=fr><meta charset=utf-8><meta name=viewport content='width=device-width'>"
             "<meta name=robots content=noindex><title>Retours · MaxPlan</title><style>"
@@ -618,9 +665,7 @@ IDEA_PAIRS = [("paris", "lyon"), ("paris", "marseille"), ("paris", "bordeaux"), 
 
 
 def do_ideas(qs):
-    date = _p(qs, "date")
-    if not DATE_RE.match(date):
-        raise BadRequest("Date invalide (format attendu AAAA-MM-JJ).")
+    date = check_date(_p(qs, "date"))
     prefs = pricing.prefs_from_qs(qs)
     if senior_weekend(prefs, date):
         return {"date": date, "ideas": []}
@@ -653,7 +698,7 @@ def do_value(qs):
     """« Max est-il rentable pour moi ? » : pour une liaison et son retour, la part des jours (sur les
     30 prochains) avec au moins un train à 0 € de jour, les prix officiels des billets payants, et ce
     que dit l'historique des places Max."""
-    src, dst = _p(qs, "from"), _p(qs, "to")
+    src, dst = _place(qs, "from"), _place(qs, "to")
     if not src or not dst:
         raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
     kind = _p(qs, "days", "all")
@@ -771,9 +816,10 @@ class RateLimiter:
             if ok:
                 q.append(now)
             self.hits[key] = q
-            if now - self.swept > window:        # oublie les adresses IP sans activité récente
+            longest = max(w for _, w in config.RATE_LIMITS.values())
+            if now - self.swept > 60:            # oublie les adresses IP sans activité récente
                 self.hits = defaultdict(list, {k: v for k, v in self.hits.items()
-                                               if v and now - v[-1] < window})
+                                               if v and now - v[-1] < longest})
                 self.swept = now
             return ok
 
@@ -786,15 +832,18 @@ STATIC_TYPES = {
     ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8",
     ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml",
     ".png": "image/png", ".woff2": "font/woff2", ".ico": "image/x-icon",
+    ".txt": "text/plain; charset=utf-8", ".xml": "application/xml; charset=utf-8",
 }
-COMPRESSIBLE = {".html", ".js", ".css", ".json", ".webmanifest", ".svg"}
+COMPRESSIBLE = {".html", ".js", ".css", ".json", ".webmanifest", ".svg", ".txt", ".xml"}
 _GZ = {}
 CSP = ("default-src 'self'; img-src 'self' data: https://server.arcgisonline.com; "
        "style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; "
-       "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+       "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; "
+       "object-src 'none'")
 
 
 class Handler(BaseHTTPRequestHandler):
+    timeout = 20                  # une connexion lente ou muette ne bloque pas un thread indéfiniment
     server_version = "MaxPlan/" + VERSION
     sys_version = ""
 
@@ -802,9 +851,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def client_ip(self):
-        return (self.headers.get("CF-Connecting-IP")
-                or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-                or self.client_address[0])
+        """IP du visiteur. Derrière le reverse proxy, c'est la DERNIÈRE entrée de X-Forwarded-For (ajoutée
+        par le proxy) qui est fiable : les précédentes peuvent être inventées par le visiteur pour
+        contourner la limite de requêtes. PROXY_HOPS = nombre de proxys de confiance (0 = aucun)."""
+        hops = config.PROXY_HOPS
+        xff = [x.strip() for x in self.headers.get("X-Forwarded-For", "").split(",") if x.strip()]
+        if hops and xff:
+            return xff[-min(hops, len(xff))][:64]
+        return self.client_address[0]
 
     def _gzip_ok(self):
         return "gzip" in self.headers.get("Accept-Encoding", "")
@@ -815,6 +869,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Permissions-Policy", "geolocation=(self), camera=(), microphone=()")
         self.send_header("Content-Security-Policy", CSP)
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        if self.headers.get("X-Forwarded-Proto", "") == "https":
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
 
     def _send(self, status, body, ctype, extra=None, compressible=True):
         enc = None
@@ -902,14 +959,19 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/admin/retours":
             import hmac
             token = _p(qs, "token")
-            if not config.FEEDBACK_TOKEN or not hmac.compare_digest(token, config.FEEDBACK_TOKEN):
+            if not LIMITER.allow((self.client_ip(), "admin"), 20, 600):
+                return self._send(429, "Trop d'essais".encode("utf-8"), "text/plain; charset=utf-8")
+            if (len(config.FEEDBACK_TOKEN) < 24
+                    or not hmac.compare_digest(token.encode("utf-8"), config.FEEDBACK_TOKEN.encode("utf-8"))):
                 return self._send(404, "Page introuvable".encode("utf-8"), "text/plain; charset=utf-8")
             return self._send(200, feedback_page().encode("utf-8"), "text/html; charset=utf-8",
-                              {"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
+                              {"Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer"})
+
 
         route = ROUTES.get(u.path)
         if not route:
             return self._static(u.path)
+        qs["_ip"] = [self.client_ip()]
         group, fn = route
         if group:
             limit, window = config.RATE_LIMITS[group]
@@ -929,6 +991,7 @@ def warmup():
     """Au démarrage : récupère la liste des gares et les géocode (sert à « gare la plus proche »)."""
     try:
         stations = core.all_stations()
+        navitia.known = set(stations)
         geocode_many(stations)
         list(DAY_POOL.map(edges_for, core.dataset_dates()))   # places Max des 30 jours (calendrier)
         print(f"    Préchauffage terminé : {len(stations)} gares Max géocodées.", flush=True)

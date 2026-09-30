@@ -49,7 +49,9 @@ def resolve_city(city, stations):
     exact = [s for s in stations if normalize(s) == nq]
     if exact:
         return exact
-    contains = sorted(s for s in stations if nq and nq in normalize(s))
+    if len(nq) < 3:                       # « e », « pa »… : trop vague, ferait exploser la recherche
+        return [city.upper()]
+    contains = sorted((s for s in stations if nq in normalize(s)), key=len)[:6]
     return contains or [city.upper()]
 
 

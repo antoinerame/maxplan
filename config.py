@@ -40,11 +40,11 @@ STATIONS_TTL = 12 * 3600
 JOURNEY_TTL = 6 * 3600
 
 # Garde-fous quand le site est partagé publiquement
-MAX_RANGE_DAYS = 31
+MAX_RANGE_DAYS = 8               # l'interface interroge jour par jour
 RATE_LIMITS = {               # groupe -> (requêtes autorisées, fenêtre en secondes) par adresse IP
     "search": (60, 60),
     "explore": (20, 60),
-    "stations": (150, 60),
+    "stations": (60, 60),
     "nearest": (30, 60),
     "calendar": (12, 60),
     "feedback": (5, 600),
@@ -56,3 +56,13 @@ TER_ARRIVAL_SPACING_MIN = 45
 
 # Page privée des retours visiteurs : /admin/retours?token=<FEEDBACK_TOKEN> (désactivée si vide)
 FEEDBACK_TOKEN = os.environ.get("FEEDBACK_TOKEN", "")
+
+# Budget quotidien de requêtes à l'API SNCF (quota de la clé : 5 000/jour). L'autocomplétion a son
+# propre plafond pour ne jamais priver les recherches de compléments TER.
+NAVITIA_DAILY_BUDGET = int(os.environ.get("NAVITIA_DAILY_BUDGET", "4500"))
+NAVITIA_PLACES_BUDGET = int(os.environ.get("NAVITIA_PLACES_BUDGET", "1200"))
+NAVITIA_PER_IP_DAILY = int(os.environ.get("NAVITIA_PER_IP_DAILY", "400"))   # compléments TER par visiteur
+
+# Nombre de reverse proxys de confiance devant le serveur (pour lire l'IP réelle dans
+# X-Forwarded-For). 1 derrière nginx/Caddy/Traefik ; 0 si le serveur est exposé directement.
+PROXY_HOPS = int(os.environ.get("PROXY_HOPS", "1"))

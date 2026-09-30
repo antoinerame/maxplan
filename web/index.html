@@ -3,16 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>MaxPlan</title>
-<meta name="description" content="Trouve les TGV Max et Intercités à 0 €, y compris avec correspondances et compléments TER, en aller simple ou aller-retour.">
+<title>MaxPlan · TGV Max à 0 € avec Max Jeune et Max Senior, correspondances et TER</title>
+<meta name="description" content="Trouve tous les TGV INOUI et Intercités à 0 € avec ton abonnement Max Jeune ou Max Senior : correspondances recomposées, complément TER, calendrier du mois, aller-retour. Gratuit, sans compte.">
+<link rel="canonical" href="https://maxplan.fr/">
+<meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#0C131F">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="MaxPlan">
-<meta property="og:title" content="MaxPlan">
-<meta property="og:description" content="Les trains Max à 0 €, correspondances et compléments TER compris.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MaxPlan">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:url" content="https://maxplan.fr/">
+<meta property="og:title" content="MaxPlan · tes trains à 0 € avec Max Jeune et Max Senior">
+<meta property="og:description" content="Tous les TGV INOUI et Intercités à 0 €, même avec correspondance, et le TER pour finir le trajet. Calendrier du mois, aller-retour, gratuit et sans compte.">
+<meta property="og:image" content="https://maxplan.fr/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="MaxPlan : tes trains à 0 € avec Max Jeune et Max Senior">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MaxPlan · tes trains à 0 € avec Max Jeune et Max Senior">
+<meta name="twitter:description" content="Tous les TGV INOUI et Intercités à 0 €, correspondances et TER compris.">
+<meta name="twitter:image" content="https://maxplan.fr/og-image.png">
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+ {"@type":"WebApplication","name":"MaxPlan","url":"https://maxplan.fr/","applicationCategory":"TravelApplication","operatingSystem":"Tous (navigateur web)","inLanguage":"fr","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"description":"Recherche des TGV INOUI et Intercités à 0 € pour les abonnés Max Jeune et Max Senior, avec correspondances, complément TER, calendrier du mois et aller-retour."},
+ {"@type":"FAQPage","mainEntity":[
+  {"@type":"Question","name":"Comment trouver un TGV Max à 0 € ?","acceptedAnswer":{"@type":"Answer","text":"Indique ta gare de départ, ta gare d'arrivée et tes dates : MaxPlan liste tous les TGV INOUI et Intercités ouverts au Max, y compris en enchaînant deux ou trois trains, et le calendrier du mois montre les jours où il y a des trains à 0 €."}},
+  {"@type":"Question","name":"Quels trains sont gratuits avec Max Jeune et Max Senior ?","acceptedAnswer":{"@type":"Answer","text":"Les TGV INOUI et les Intercités à réservation obligatoire (y compris certains trains de nuit), en 2de classe, sur les places que la SNCF ouvre au Max. Les TER et OUIGO grande vitesse ne sont pas inclus."}},
+  {"@type":"Question","name":"Et si ma gare n'a pas de TGV Max ?","acceptedAnswer":{"@type":"Answer","text":"MaxPlan cherche un train Max jusqu'à la gare la plus proche, puis le TER pour finir le trajet, avec une estimation du prix du TER selon ta carte de réduction régionale."}},
+  {"@type":"Question","name":"L'abonnement Max Jeune est-il rentable pour moi ?","acceptedAnswer":{"@type":"Answer","text":"L'onglet « Rentable ? » compare, pour tes trajets habituels, le prix des billets avec ou sans carte Avantage et le coût de l'abonnement Max (79 € par mois), d'après les places à 0 € disponibles et les tarifs officiels de la SNCF."}},
+  {"@type":"Question","name":"MaxPlan est-il un site officiel de la SNCF ?","acceptedAnswer":{"@type":"Answer","text":"Non. MaxPlan est un site indépendant et gratuit qui utilise les données ouvertes de la SNCF. La réservation se fait sur SNCF Connect."}}
+ ]}
+]}
+</script>
 <link rel="preload" href="/fonts/nunitosans-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/barlow-600.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/vendor/leaflet.css">
@@ -177,6 +204,17 @@
         </section>
 
         <div class="ideas" id="ideas"></div>
+
+        <section class="faq" id="faq" aria-labelledby="faq-title">
+          <h2 id="faq-title">Questions fréquentes</h2>
+          <details><summary>Comment trouver un TGV Max à 0 € ?</summary><p>Indique ta gare de départ, ta gare d'arrivée et tes dates : MaxPlan liste tous les TGV INOUI et Intercités ouverts au Max, y compris en enchaînant deux ou trois trains. Le calendrier du mois montre d'un coup d'œil les jours où il y a des trains à 0 €.</p></details>
+          <details><summary>Quels trains sont gratuits avec Max Jeune et Max Senior ?</summary><p>Les TGV INOUI et les Intercités à réservation obligatoire (y compris certains trains de nuit), en 2de classe, sur les places que la SNCF ouvre au Max. Les TER et les OUIGO grande vitesse ne sont pas inclus. Max Senior ne donne pas de 0 € le week-end.</p></details>
+          <details><summary>Et si ma gare n'a pas de TGV Max ?</summary><p>MaxPlan cherche un train Max jusqu'à la gare la plus proche, puis le TER pour finir le trajet, avec une estimation du prix du TER selon ta carte de réduction régionale (à régler dans ton profil).</p></details>
+          <details><summary>L'abonnement Max Jeune est-il rentable pour moi ?</summary><p>L'onglet « Rentable ? » compare, pour tes trajets habituels, le prix des billets (plein tarif ou carte Avantage) avec le coût de l'abonnement Max, 79 € par mois, d'après les places à 0 € disponibles et les tarifs officiels de la SNCF.</p></details>
+          <details><summary>Les places affichées sont-elles à jour ?</summary><p>Elles viennent des données ouvertes de la SNCF, mises à jour chaque matin. Une place peut être partie entre-temps : vérifie toujours sur SNCF Connect avant de partir.</p></details>
+          <details><summary>MaxPlan est-il un site officiel de la SNCF ?</summary><p>Non : c'est un site indépendant et gratuit, sans compte ni publicité, qui utilise les données ouvertes de la SNCF. La réservation se fait sur SNCF Connect.</p></details>
+        </section>
+
       </div>
     </aside>
 

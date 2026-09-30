@@ -65,11 +65,44 @@ class Navitia:
             except Exception:
                 self._cache = {}
         self._miss = {}   # échecs récents (mémoire seulement) : libellé -> horodatage
+        self._places = {}  # autocomplétion : requête -> (horodatage, résultats)
+        self._mem = {}     # géocodage de textes libres (non persisté, borné)
+        self.known = set()  # libellés de gares de l'open data : seuls ceux-là sont écrits sur disque
         self._coverage = None
         self._coverage_ts = 0.0
+        self._budget_day, self._used = "", {}
+
+    # -- Budget quotidien --------------------------------------------------
+    def _spend(self, kind):
+        """Garde-fou du quota de la clé (5 000 requêtes/jour) : au-delà du budget du jour, on
+        n'appelle plus l'API (le site continue de marcher, sans compléments TER). L'autocomplétion a
+        son propre plafond pour ne jamais priver les recherches de quota."""
+        today = time.strftime("%Y-%m-%d")
+        with self._lock:
+            if today != self._budget_day:
+                self._budget_day, self._used = today, {}
+            total = sum(self._used.values())
+            if total >= config.NAVITIA_DAILY_BUDGET:
+                return False
+            if kind == "places" and self._used.get("places", 0) >= config.NAVITIA_PLACES_BUDGET:
+                return False
+            self._used[kind] = self._used.get(kind, 0) + 1
+            return True
+
+    def over_budget(self):
+        with self._lock:
+            return (self._budget_day == time.strftime("%Y-%m-%d")
+                    and sum(self._used.values()) >= config.NAVITIA_DAILY_BUDGET)
+
+    def usage(self):
+
+        with self._lock:
+            return {"day": self._budget_day, **self._used}
 
     # -- HTTP --------------------------------------------------------------
-    def _get(self, path):
+    def _get(self, path, kind="other"):
+        if not self._spend(kind):
+            return {"_status": 429, "_budget": True}
         req = urllib.request.Request(BASE + path, headers={"Authorization": self.auth})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
@@ -96,7 +129,8 @@ class Navitia:
                     "start": reg.get("start_production_date"),
                     "end": reg.get("end_production_date"),
                 }
-                self._coverage_ts = time.time()
+            self._coverage_ts = time.time()   # même en cas d'échec : pas de nouvel appel à chaque requête
+
         return self._coverage
 
     def date_in_range(self, ymd):  # ymd = 'YYYY-MM-DD'
@@ -127,15 +161,17 @@ class Navitia:
         return best and best[1]
 
     def geocode(self, label):
-        v = self._cache.get(label)
+        v = self._cache.get(label) or self._mem.get(label)
         if v:
             return v
         if time.time() - self._miss.get(label, 0) < 3600:   # échec récent : on réessaiera plus tard
             return None
+        if len(label) > 120:
+            return None
         res = None
         base = _clean(label)
         key = _fold(base.split()[0]) if base.split() else ""
-        for i, q in enumerate(_variants(base)):
+        for i, q in enumerate(_variants(base)[:3]):
             res = self._lookup(q)
             # une variante raccourcie n'est acceptée que si le lieu trouvé porte bien le nom de la ville
             if res and (i == 0 or key in _fold(res["name"])):
@@ -143,20 +179,34 @@ class Navitia:
             res = None
         with self._lock:
             if res:
-                self._cache[label] = res
+                if label in self.known or not self.known:   # gares de l'open data : cache disque
+                    self._cache[label] = res
+                    self._save_cache()
+                else:                                         # texte libre : mémoire bornée
+                    if len(self._mem) > 3000:
+                        self._mem.clear()
+                    self._mem[label] = res
                 self._miss.pop(label, None)
-                self._save_cache()
             else:
                 self._cache.pop(label, None)
+                if len(self._miss) > 5000:
+                    self._miss.clear()
                 self._miss[label] = time.time()   # jamais persisté : pas d'échec « définitif »
         return res
 
     # -- Recherche de gares (autocomplétion) -------------------------------
     def places(self, q, limit=8):
-        if not q or len(q) < 2:
+        q = (q or "").strip()[:60]
+        if len(q) < 3:
             return []
+        key = (_fold(q), limit)
+        hit = self._places.get(key)
+        if hit and time.time() - hit[0] < 24 * 3600:
+            return hit[1]
         d = self._get("/coverage/sncf/places?" + urllib.parse.urlencode(
-            [("type[]", "stop_area"), ("count", limit), ("q", q)]))
+            [("type[]", "stop_area"), ("count", limit), ("q", q)]), kind="places")
+        if isinstance(d, dict) and d.get("_status"):
+            return []
         out = []
         for p in d.get("places", []) if isinstance(d, dict) else []:
             sa = p.get("stop_area") or {}
@@ -164,6 +214,10 @@ class Navitia:
             if c.get("lat") and c.get("lon"):
                 out.append({"id": p["id"], "name": p.get("name", q),
                             "lat": float(c["lat"]), "lon": float(c["lon"])})
+        with self._lock:
+            if len(self._places) > 5000:
+                self._places.clear()
+            self._places[key] = (time.time(), out)
         return out
 
     # -- Calcul d'itinéraire (segment TER de complément) -------------------
@@ -192,8 +246,9 @@ class Navitia:
                 f"&datetime_represents=departure&max_nb_journeys=3"
                 f"&max_nb_transfers={int(max_transfers)}"
                 + "".join(f"&forbidden_uris%5B%5D=commercial_mode:{m}" for m in FORBIDDEN_MODES))
-        d = self._get(path)
+        d = self._get(path, kind="journeys")
         journeys = d.get("journeys", []) if isinstance(d, dict) else []
+
         if not journeys:
             return None
 

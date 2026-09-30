@@ -11,3 +11,5 @@ README.md
 history.sqlite*
 feedback.jsonl
 geo_cache*.json
+.env.*
+!.env.example

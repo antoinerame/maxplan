@@ -4,8 +4,9 @@ services:
     image: tgvmax-dashboard:latest
     container_name: tgvmax
     ports:
-      # http://localhost:8765 (change HOST_PORT dans .env pour un autre port hôte)
-      - "${HOST_PORT:-8765}:8765"
+      # http://localhost:8765, joignable depuis la machine seulement : le reverse proxy (nginx, Caddy…)
+      # s'y connecte. BIND=0.0.0.0 dans .env si le proxy est ailleurs (le port ne doit pas être public).
+      - "${BIND:-127.0.0.1}:${HOST_PORT:-8765}:8765"
     environment:
       MAXFINDER_HOST: "0.0.0.0"
       PORT: "8765"
@@ -13,7 +14,7 @@ services:
     env_file:
       - .env            # fournit SNCF_TOKEN (clé API Navitia)
     volumes:
-      - geocache:/data  # persiste geo_cache.json entre les redémarrages
+      - geocache:/data  # cache de géocodage, historique des places Max, retours des visiteurs
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8765/healthz',timeout=3).status==200 else 1)"]

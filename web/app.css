@@ -591,3 +591,14 @@ legend{padding:0;margin-bottom:10px;font-weight:800;font-size:14px}
 .verdict{margin-bottom:14px}
 .value-row .wf{background:var(--surface);border:1px solid var(--line)}
 .value-row .seg{background:var(--surface)}
+
+/* questions fréquentes (accueil) */
+.faq{margin-top:26px;display:flex;flex-direction:column;gap:8px}
+.faq h2{margin:0 0 4px;font-weight:800;font-size:17px}
+.faq details{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r);box-shadow:var(--shadow-1)}
+.faq summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;cursor:pointer;font-weight:700;font-size:14.5px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"";flex:none;width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-2px) rotate(45deg);transition:transform .15s}
+.faq details[open] summary::after{transform:translateY(2px) rotate(-135deg)}
+.faq details p{margin:0;padding:0 14px 14px;color:var(--ink-2);font-size:14px;max-width:68ch}
+.app:not([data-tab="search"]) .faq,.app[data-view="results"] .faq{display:none}

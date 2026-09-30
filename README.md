@@ -4,7 +4,7 @@ Trouve les **trains à 0 €** des abonnements Max Jeune et Max Senior (TGV INOU
 des correspondances** et en **complétant en TER** jusqu'aux gares sans TGV Max — sur une carte de
 France lisible, sur ordinateur comme sur téléphone.
 
-👉 **https://tgvmax.roulotte-rame.fr**
+👉 **https://maxplan.fr**
 
 ## 🚀 Lancer
 
@@ -17,9 +17,18 @@ docker compose up -d          # → http://localhost:8765
 
 Même commande sur le serveur (`docker compose up -d`), derrière ton reverse proxy habituel
 (Nginx, Caddy, Traefik…) qui fournit le HTTPS — nécessaire pour la géolocalisation (« gare la
-plus proche ») et l'installation en application sur téléphone. Le serveur lit l'IP réelle des
-visiteurs dans `X-Forwarded-For` / `CF-Connecting-IP` pour la limite de requêtes : fais transmettre
-ces en-têtes par le proxy, et n'expose pas le port 8765 directement.
+plus proche ») et l'installation en application sur téléphone.
+
+Sécurité (réglages dans `.env`) :
+- le port n'écoute que sur la machine (`BIND=127.0.0.1`) : seul le reverse proxy le joint ; ne
+  l'ouvre jamais directement sur Internet ;
+- `PROXY_HOPS=1` : l'IP réelle des visiteurs (limite de requêtes) est la dernière entrée de
+  `X-Forwarded-For`, ajoutée par ton proxy (`proxy_set_header X-Forwarded-For
+  $proxy_add_x_forwarded_for;` et `X-Forwarded-Proto $scheme;` sous nginx) ;
+- budget de la clé API SNCF : `NAVITIA_DAILY_BUDGET` (4 500/jour), dont `NAVITIA_PLACES_BUDGET`
+  pour l'autocomplétion, et `NAVITIA_PER_IP_DAILY` par visiteur ; au-delà, le site reste utilisable
+  sans compléments TER jusqu'au lendemain ;
+- HSTS est envoyé quand le proxy transmet `X-Forwarded-Proto: https`.
 
 **Retours des visiteurs** : le bouton « Signaler » enregistre les messages dans le volume de données
 (`feedback.jsonl`). Pour les lire, mets un jeton dans `.env` (`FEEDBACK_TOKEN=…`, une longue chaîne
