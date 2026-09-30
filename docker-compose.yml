@@ -16,6 +16,9 @@ services:
     volumes:
       - geocache:/data  # cache de géocodage, historique des places Max, retours des visiteurs
     restart: unless-stopped
+    # garde-fous : le site ne peut pas prendre plus d'un cœur ni plus de 768 Mo au reste du serveur
+    cpus: 1.0
+    mem_limit: 768m
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8765/healthz',timeout=3).status==200 else 1)"]
       interval: 30s
