@@ -771,7 +771,7 @@
         const prev = it.legs[i - 1];
         const wait = absMin(l.dep, l.dep_day) - absMin(prev.arr, prev.arr_day);
         const move = !samePlace(prev.to_name, l.from_name)
-          ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${/^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? ' (métro ou RER)' : ''}</em>` : '';
+          ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${l.change_note ? ` (${esc(l.change_note)})` : /^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? ' (métro ou RER)' : ''}</em>` : '';
         sub = `<small>arrivée ${esc(prev.arr)} · correspondance ${fmtDur(Math.max(0, wait))}, <span class="${wait < 30 ? 'short' : ''}">non garantie${wait < 30 ? ' (marge courte)' : ''}</span></small>${move}`;
       }
       const access = i === 0 && l.access_from ? `<em class="move">${ICON.walk}${esc(l.access_from)}</em>` : '';

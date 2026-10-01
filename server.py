@@ -279,9 +279,19 @@ def direct_fare(origins, targets):
     return _FARES[(origins, targets)]
 
 
+def max_legs(path, date, geo):
+    """Tronçons Max d'un trajet ; quand on change de gare jumelle (Massy → Marne-la-Vallée…),
+    le tronçon suivant dit comment faire."""
+    legs = [max_leg(e, date, geo) for e in path]
+    for prev, e, leg in zip(path, path[1:], legs[1:]):
+        if e["o"] != prev["d"]:
+            leg["change_note"] = core.twin_note(prev["d"], e["o"])
+    return legs
+
+
 def itinerary_from_path(path, date, geo):
 
-    legs = [max_leg(e, date, geo) for e in path]
+    legs = max_legs(path, date, geo)
     return {
         "_dep": path[0]["dep"], "_arr": path[-1]["arr"],
         "type": "max", "paid": False, "cost_eur": 0, "nresa": len(legs), "changes": len(legs) - 1,
@@ -436,7 +446,7 @@ def search_one_day(src, dst, date, opts):
     out = [dict(itinerary_from_path(p, date, geo)) for p in max_paths]
 
     for path, s, g, jr, ready, estimated in ter_itins:
-        legs = [max_leg(e, date, geo) for e in path]
+        legs = max_legs(path, date, geo)
         last_arr = path[-1]["arr"]
         tdep = core.hhmm_to_min(jr["departure"]) if jr.get("departure") else ready % 1440
         ter_dep = (ready // 1440) * 1440 + tdep
@@ -493,10 +503,12 @@ def search_one_day(src, dst, date, opts):
     # depuis / vers une gare TGV d'Île-de-France quand on a cherché « Paris » : comment y aller
     for it in out:
         first, last = it["legs"][0], it["legs"][-1]
-        if first["from"] in core.IDF_ACCESS and "PARIS (intramuros)" in origins:
-            first["access_from"] = "Depuis Paris : " + core.IDF_ACCESS[first["from"]]
-        if last["to"] in core.IDF_ACCESS and "PARIS (intramuros)" in targets:
-            last["access_to"] = "Vers Paris : " + core.IDF_ACCESS[last["to"]]
+        a = core.ANNEX.get(first["from"])
+        if a and a[0] in origins:
+            first["access_from"] = f"Depuis {a[1]} : {a[2]}"
+        a = core.ANNEX.get(last["to"])
+        if a and a[0] in targets:
+            last["access_to"] = f"Vers {a[1]} : {a[2]}"
     day = drop_dominated([it for it in out if not it["nocturnal"]])
     full = drop_dominated(out)
     night = [it for it in full if it["nocturnal"]]

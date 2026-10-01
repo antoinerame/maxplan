@@ -17,7 +17,7 @@ API = "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/tgvmax
 CITY_ALIASES = {
     "paris": ["PARIS (intramuros)", "MARNE LA VALLEE CHESSY", "MASSY TGV", "MASSY PALAISEAU",
               "AEROPORT ROISSY CDG 2 TGV", "VERSAILLES CHANTIERS"],
-    "lyon": ["LYON (intramuros)"],
+    "lyon": ["LYON (intramuros)", "LYON ST EXUPERY TGV."],
     "marseille": ["MARSEILLE ST CHARLES", "MARSEILLE BLANCARDE"],
     "lille": ["LILLE (intramuros)"],
     "avignon": ["AVIGNON TGV", "AVIGNON CENTRE"],
@@ -29,20 +29,69 @@ CITY_ALIASES = {
     "rennes": ["RENNES"],
     "strasbourg": ["STRASBOURG"],
     "montpellier": ["MONTPELLIER SAINT ROCH", "MONTPELLIER SUD DE FRANCE"],
+    "nimes": ["NIMES CENTRE", "NIMES PONT DU GARD"],
+    "valence": ["VALENCE VILLE", "VALENCE TGV AUVERGNE RHONE ALPES"],
+    "besancon": ["BESANCON VIOTTE", "BESANCON FRANCHE COMTE TGV"],
+    "reims": ["REIMS", "CHAMPAGNE ARDENNE TGV"],
     "nice": ["NICE VILLE"],
     "toulouse": ["TOULOUSE MATABIAU"],
     "grenoble": ["GRENOBLE"],
 }
 
 
-# Gares TGV d'Île-de-France proposées quand on cherche « Paris », avec le moyen d'y aller
-IDF_ACCESS = {
-    "MARNE LA VALLEE CHESSY": "RER A, environ 40 min depuis Châtelet, ticket 2,50 €",
-    "MASSY TGV": "RER B ou C, environ 30 min, ticket 2,50 €",
-    "MASSY PALAISEAU": "RER B ou C, environ 30 min, ticket 2,50 €",
-    "AEROPORT ROISSY CDG 2 TGV": "RER B, environ 35 min depuis Gare du Nord, billet aéroport ≈ 13 €",
-    "VERSAILLES CHANTIERS": "train ou RER C, environ 20 min depuis Montparnasse, ticket 2,50 €",
+# Gares annexes proposées quand on cherche la ville (gare principale, ville, comment y aller)
+ANNEX = {
+    "MARNE LA VALLEE CHESSY": ("PARIS (intramuros)", "Paris", "RER A, environ 40 min depuis Châtelet, ticket 2,50 €"),
+    "MASSY TGV": ("PARIS (intramuros)", "Paris", "RER B ou C, environ 30 min, ticket 2,50 €"),
+    "MASSY PALAISEAU": ("PARIS (intramuros)", "Paris", "RER B ou C, environ 30 min, ticket 2,50 €"),
+    "AEROPORT ROISSY CDG 2 TGV": ("PARIS (intramuros)", "Paris", "RER B, environ 35 min depuis Gare du Nord, billet aéroport ≈ 13 €"),
+    "VERSAILLES CHANTIERS": ("PARIS (intramuros)", "Paris", "train ou RER C, environ 20 min depuis Montparnasse, ticket 2,50 €"),
+    "LYON ST EXUPERY TGV.": ("LYON (intramuros)", "Lyon", "tram Rhônexpress depuis Part-Dieu, environ 30 min, ≈ 17 €"),
 }
+IDF_ACCESS = {k: v[2] for k, v in ANNEX.items() if v[0] == "PARIS (intramuros)"}
+MAIN_STATION_KEY = {"PARIS (intramuros)": "paris", "LYON (intramuros)": "lyon"}
+
+# Gares jumelles : on peut arriver à l'une et repartir de l'autre (minutes de changement, marge
+# comprise, et comment faire). Paris intra-muros : voir transfer_min (gares déduites de l'axe).
+_TWIN_PAIRS = [
+    ("PARIS (intramuros)", "MARNE LA VALLEE CHESSY", 60, "RER A, environ 40 min"),
+    ("PARIS (intramuros)", "MASSY TGV", 60, "RER B ou C, environ 35 min"),
+    ("PARIS (intramuros)", "MASSY PALAISEAU", 60, "RER B ou C, environ 35 min"),
+    ("PARIS (intramuros)", "AEROPORT ROISSY CDG 2 TGV", 60, "RER B, environ 35 min"),
+    ("PARIS (intramuros)", "VERSAILLES CHANTIERS", 50, "train ou RER C, environ 25 min"),
+    ("MASSY TGV", "MASSY PALAISEAU", 20, "à pied, environ 10 min"),
+    ("MASSY TGV", "MARNE LA VALLEE CHESSY", 100, "RER B puis RER A, environ 1 h 15"),
+    ("MASSY TGV", "AEROPORT ROISSY CDG 2 TGV", 90, "RER B, environ 1 h 05"),
+    ("MARNE LA VALLEE CHESSY", "AEROPORT ROISSY CDG 2 TGV", 90, "RER A puis RER B, environ 1 h 10"),
+    ("LYON (intramuros)", "LYON ST EXUPERY TGV.", 60, "tram Rhônexpress, environ 30 min, ≈ 17 €"),
+    ("AVIGNON TGV", "AVIGNON CENTRE", 25, "navette TER, environ 5 min"),
+    ("MONTPELLIER SAINT ROCH", "MONTPELLIER SUD DE FRANCE", 40, "navette ou tram, environ 20 min"),
+    ("NIMES CENTRE", "NIMES PONT DU GARD", 35, "navette ou TER, environ 15 min"),
+    ("VALENCE VILLE", "VALENCE TGV AUVERGNE RHONE ALPES", 25, "TER, environ 10 min"),
+    ("REIMS", "CHAMPAGNE ARDENNE TGV", 25, "TER ou tram, environ 10 min"),
+    ("BESANCON VIOTTE", "BESANCON FRANCHE COMTE TGV", 30, "TER, environ 15 min"),
+    ("METZ VILLE", "LORRAINE TGV", 50, "navette en car, environ 30 min"),
+    ("NANCY", "LORRAINE TGV", 50, "navette en car, environ 35 min"),
+]
+TWINS = {}
+for _a, _b, _m, _n in _TWIN_PAIRS:
+    TWINS.setdefault(_a, []).append((_b, _m, _n))
+    TWINS.setdefault(_b, []).append((_a, _m, _n))
+
+
+def twin_note(a, b):
+    """Comment passer de la gare a à la gare b (gares jumelles), ou None."""
+    return next((n for x, _, n in TWINS.get(a, ()) if x == b), None)
+
+
+def _departures(by_origin, station, path):
+    """Trains au départ de la gare… ou de sa jumelle (changement de gare) : (train, attente mini)."""
+    for e in by_origin.get(station, ()):
+        yield e, (transfer_min(station, path[-1], e) if path else 0)
+    if path:
+        for other, mins, _ in TWINS.get(station, ()):
+            for e in by_origin.get(other, ()):
+                yield e, mins
 
 
 def normalize(s):
@@ -53,8 +102,8 @@ def normalize(s):
 def resolve_city(city, stations):
     """Libellés de gare du dataset correspondant à `city` (alias, exact, ou contient)."""
     key = city.strip().lower()
-    if city.strip() == "PARIS (intramuros)":      # gare choisie dans la liste : Paris + gares TGV d'Île-de-France
-        key = "paris"
+    if city.strip() in MAIN_STATION_KEY:          # gare choisie dans la liste : la ville et ses gares annexes
+        key = MAIN_STATION_KEY[city.strip()]
     if key in CITY_ALIASES:
         hit = [s for s in CITY_ALIASES[key] if s in stations]
         return hit or CITY_ALIASES[key]
@@ -219,13 +268,16 @@ def _reach_levels(edges, targets, k):
     rev = {}
     for e in edges:
         rev.setdefault(e["d"], set()).add(e["o"])
-    levels = [set(targets)]
+    def with_twins(s):                    # une gare jumelle « vaut » l'autre (changement de gare)
+        return s | {t for x in s for t, _, _ in TWINS.get(x, ())}
+
+    levels = [with_twins(set(targets))]
     for _ in range(k):
         cur = levels[-1]
         nxt = set(cur)
         for s in cur:
             nxt |= rev.get(s, set())
-        levels.append(nxt)
+        levels.append(with_twins(nxt))
     return levels
 
 
@@ -242,14 +294,14 @@ def search(edges, origins, targets, max_conn=3, max_results=40, min_dep=0, max_d
         if len(path) > max_conn + 1:
             return
         left = max_conn - len(path)            # trains encore possibles après celui-ci
-        for e in by_origin.get(station, []):
+        for e, need in _departures(by_origin, station, path):
             if e["d"] in visited or e["d"] not in levels[max(0, left)]:
                 continue
             if not path and not (min_dep <= e["dep"] <= max_dep):  # fenêtre de départ (1er train)
                 continue
             if path:
                 wait = e["dep"] - arrived_at
-                if wait < transfer_min(station, path[-1], e) or wait > config.MAX_LAYOVER_MIN:
+                if wait < need or wait > config.MAX_LAYOVER_MIN:
                     continue
             total = (e["arr"] - path[0]["dep"]) if path else (e["arr"] - e["dep"])
             if total > config.MAX_TOTAL_MIN:
@@ -259,7 +311,7 @@ def search(edges, origins, targets, max_conn=3, max_results=40, min_dep=0, max_d
                 found.append(newpath)
                 continue                        # arrivé : inutile de repartir
             if len(newpath) <= max_conn:
-                dfs(e["d"], e["arr"], newpath, visited | {e["d"]})
+                dfs(e["d"], e["arr"], newpath, visited | {e["d"], e["o"]})
 
     for o in origins:
         dfs(o, 0, [], {o})
@@ -283,25 +335,26 @@ def reachable(edges, origins, max_conn=1, min_dep=0, max_dep=1440):
     best = {}
 
     def dfs(station, arrived_at, path, visited):
-        for e in by_origin.get(station, []):
+        for e, need in _departures(by_origin, station, path):
             if e["d"] in visited:
                 continue
             if not path and not (min_dep <= e["dep"] <= max_dep):
                 continue
             if path:
                 wait = e["dep"] - arrived_at
-                if wait < transfer_min(station, path[-1], e) or wait > config.MAX_LAYOVER_MIN:
+                if wait < need or wait > config.MAX_LAYOVER_MIN:
                     continue
             newpath = path + [e]
             cur = best.get(e["d"])
             if cur is None or len(newpath) < cur[0]:
                 best[e["d"]] = (len(newpath), newpath)
             if len(newpath) <= max_conn:
-                dfs(e["d"], e["arr"], newpath, visited | {e["d"]})
+                dfs(e["d"], e["arr"], newpath, visited | {e["d"], e["o"]})
 
     for o in origins:
         dfs(o, 0, [], {o})
     return best
+
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
