@@ -239,7 +239,48 @@ def drop_dominated(itins):
     return [x for x in itins if not any(beats(y, x) for y in itins)]
 
 
+def detour_ratio(origins, relay, fgeo, dest, direct_km):
+    """(départ → relais + relais → destination) / (départ → destination), au mieux parmi les gares de départ."""
+    g = fgeo.get(relay) or navitia._cache.get(relay)
+    if not g:
+        return 0
+    best = None
+    for o in origins:
+        og = fgeo.get(o) or navitia._cache.get(o)
+        if og:
+            via = core.haversine_km(og["lat"], og["lon"], g["lat"], g["lon"]) + \
+                core.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
+            r = via / max(1.0, core.haversine_km(og["lat"], og["lon"], dest["lat"], dest["lon"]))
+            best = r if best is None else min(best, r)
+    return best or 0
+
+
+def path_detour(legs):
+    """Distance parcourue / distance à vol d'oiseau entre le départ et l'arrivée d'un trajet."""
+    pts = [(l.get("from_lat"), l.get("from_lon")) for l in legs] + [(legs[-1].get("to_lat"), legs[-1].get("to_lon"))]
+    pts = [p for p in pts if p[0] is not None]
+    if len(pts) < 3:
+        return 1.0
+    run = sum(core.haversine_km(*a, *b) for a, b in zip(pts, pts[1:]))
+    return run / max(1.0, core.haversine_km(*pts[0], *pts[-1]))
+
+
+_FARES = {}
+
+
+def direct_fare(origins, targets):
+    """Prix habituel (milieu de fourchette, tarif Avantage) d'un billet direct entre deux villes."""
+    if (origins, targets) not in _FARES:
+        try:
+            p = fares.price_range(list(origins), list(targets))
+            _FARES[(origins, targets)] = p and p["avantage"]["typical"]
+        except Exception:
+            return None
+    return _FARES[(origins, targets)]
+
+
 def itinerary_from_path(path, date, geo):
+
     legs = [max_leg(e, date, geo) for e in path]
     return {
         "_dep": path[0]["dep"], "_arr": path[-1]["arr"],
@@ -330,6 +371,10 @@ def search_one_day(src, dst, date, opts):
         for s in frontier:
             km = km_to_dest(s)
             # une gare-relais doit rapprocher de la destination (sinon ce n'est qu'un détour)
+            # pas d'aller-retour géographique : partir de Paris jusqu'à Avignon pour remonter à Lyon
+            # en TER n'a aucun sens (détour limité à DETOUR_MAX fois la distance directe)
+            if km is not None and o_km and detour_ratio(origins, s, fgeo, dest_geo, o_km) > config.DETOUR_MAX:
+                continue
             if km is not None and km <= config.TER_MAX_DISTANCE_KM and (o_km is None or km < o_km):
                 ranked.append((km, s))
         ranked.sort()
@@ -437,12 +482,39 @@ def search_one_day(src, dst, date, opts):
     if fastest:
         out = [it for it in out if it["duration_min"] <= (
             max(2 * fastest, fastest + 720) if it["nocturnal"] else max(2 * fastest, fastest + 240))]
+    # Max + TER plus cher qu'un vrai billet direct (tarif officiel habituel) : sans intérêt
+    fare = direct_fare(tuple(origins), tuple(targets))
+    if fare:
+        out = [it for it in out if not it["paid"] or it["cost_eur"] <= config.TER_MAX_SHARE_OF_FARE * fare]
+    # trajets 100 % Max mais très détournés (Paris → Avignon → Lyon) : repliés sous « afficher plus »
+    for it in out:
+        if not it["paid"] and path_detour(it["legs"]) > config.DETOUR_MAX:
+            it["detour"] = True
+    # depuis / vers une gare TGV d'Île-de-France quand on a cherché « Paris » : comment y aller
+    for it in out:
+        first, last = it["legs"][0], it["legs"][-1]
+        if first["from"] in core.IDF_ACCESS and "PARIS (intramuros)" in origins:
+            first["access_from"] = "Depuis Paris : " + core.IDF_ACCESS[first["from"]]
+        if last["to"] in core.IDF_ACCESS and "PARIS (intramuros)" in targets:
+            last["access_to"] = "Vers Paris : " + core.IDF_ACCESS[last["to"]]
     day = drop_dominated([it for it in out if not it["nocturnal"]])
     full = drop_dominated(out)
     night = [it for it in full if it["nocturnal"]]
     shown = full if opts["nights"] else day
     for it in out:
         it.pop("_dep", None); it.pop("_arr", None)
+    def unique(items):
+        """Même départ, même arrivée, même prix : une seule ligne (la plus simple : moins de
+        changements, puis le moins de détour). Évite trois variantes du même trajet à l'écran."""
+        best = {}
+        for it in items:
+            k = (it["departure"], it["arrival"], it["arrival_day"], it["cost_eur"], it["legs"][0]["from_name"])
+            score = (len(it["legs"]), path_detour(it["legs"]))
+            if k not in best or score < best[k][0]:
+                best[k] = (score, it)
+        keep = {id(v[1]) for v in best.values()}
+        return [it for it in items if id(it) in keep]
+    shown, night = unique(shown), unique(night)
     order = lambda it: (it["paid"], it["departure"])
     res = {"itineraries": sorted(shown, key=order)}
     if not opts["nights"] and night:

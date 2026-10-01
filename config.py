@@ -70,3 +70,7 @@ PROXY_HOPS = int(os.environ.get("PROXY_HOPS", "1"))
 # Derrière Cloudflare (tunnel ou proxy) : CLIENT_IP_HEADER=CF-Connecting-IP. À ne régler que si le
 # site n'est joignable QUE par Cloudflare (sinon n'importe qui pourrait inventer cet en-tête).
 CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip()
+
+# Cohérence des trajets proposés
+DETOUR_MAX = 1.4                 # gare-relais : au plus 40 % de distance en plus que le trajet direct
+TER_MAX_SHARE_OF_FARE = 0.6      # Max + TER retiré s'il coûte plus de 60 % d'un billet direct habituel

@@ -27,6 +27,7 @@ LABEL_OVERRIDES = {
     "PARIS (intramuros)": "Paris Gare de Lyon",
     "LYON (intramuros)": "Lyon Part Dieu",
     "LILLE (intramuros)": "Lille Europe",
+    "AEROPORT ROISSY CDG 2 TGV": "Aéroport Charles de Gaulle 2 TGV",
 }
 
 
@@ -64,6 +65,9 @@ class Navitia:
                     self._cache = {k: v for k, v in json.load(f).items() if v}   # anciens échecs ignorés
             except Exception:
                 self._cache = {}
+        for k in ("AEROPORT ROISSY CDG 2 TGV",):   # géocodages corrigés depuis : on les refait
+            if (self._cache.get(k) or {}).get("name", "").find("2") < 0:
+                self._cache.pop(k, None)
         self._miss = {}   # échecs récents (mémoire seulement) : libellé -> horodatage
         self._places = {}  # autocomplétion : requête -> (horodatage, résultats)
         self._mem = {}     # géocodage de textes libres (non persisté, borné)

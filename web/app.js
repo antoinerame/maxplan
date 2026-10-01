@@ -603,7 +603,7 @@
     return list.sort(tripSort);
   }
   // trajets « en plus » : 2 changements ou plus, montrés seulement sur demande (ou s'il n'y a rien d'autre)
-  const isExtra = it => (it.changes ?? it.legs.length - 1) >= 2;
+  const isExtra = it => (it.changes ?? it.legs.length - 1) >= 2 || !!it.detour;
   const visibleTrips = dir => state.days.filter(d => d.dir === dir).flatMap(d => (d.loading ? [] : dayTrips(d)));
   const findTrip = key => {
     const [dir, rest] = key.split('|');
@@ -705,9 +705,9 @@
       html += `<button class="more" type="button" data-night>Masquer les trajets de nuit</button>`;
     }
     if (hiddenExtra) {
-      html += `<button class="more" type="button" id="btn-more">Afficher plus de résultats<small>${plural(hiddenExtra, 'trajet', 'trajets')} avec 2 changements ou plus</small></button>`;
+      html += `<button class="more" type="button" id="btn-more">Afficher plus de résultats<small>${plural(hiddenExtra, 'trajet plus long', 'trajets plus longs')} : détours ou 2 changements et plus</small></button>`;
     } else if (state.showMore && extraTotal) {
-      html += `<button class="more" type="button" id="btn-more">Masquer les trajets à 2 changements ou plus</button>`;
+      html += `<button class="more" type="button" id="btn-more">Masquer les trajets plus longs</button>`;
     }
     if (shown.every(d => !d.loading) && !all.length && !nightTotal) {
       html += `<div class="empty"><h2>Pas de train Max sur cette période</h2><p>Essaie d'autres dates : le bouton « Calendrier » montre les jours où il y a des trains à 0 € sur ce trajet.</p></div>`;
@@ -729,9 +729,12 @@
     const meta = [fmtDur(it.duration_min), nch ? plural(nch, 'changement', 'changements') : 'direct'];
     if (via.length) meta.push(`via ${via.join(', ')}`);
     const ic = it.legs.some(l => l.free && l.mode === 'Intercités');
+    const idf = it.legs[0].access_from || it.legs[it.legs.length - 1].access_to;
     const est = it.legs.some(l => l.estimated_schedule);
     const margin = minMargin(it);
     const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
+      + (idf ? '<em class="b via">Gare d\'Île-de-France</em>' : '')
+
       + (est ? '<em class="b est">Horaire TER estimé</em>' : '')
       + (margin != null && margin < 30 ? `<em class="b sep" title="Moins de 30 min pour changer de train, et la correspondance n'est pas garantie">Correspondance courte</em>` : '')
       + (it.nocturnal ? `<em class="b night">${ICON.moon}Nuit</em>` : '');
@@ -771,7 +774,8 @@
           ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${/^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? ' (métro ou RER)' : ''}</em>` : '';
         sub = `<small>arrivée ${esc(prev.arr)} · correspondance ${fmtDur(Math.max(0, wait))}, <span class="${wait < 30 ? 'short' : ''}">non garantie${wait < 30 ? ' (marge courte)' : ''}</span></small>${move}`;
       }
-      h += `<li class="stop${i === 0 ? ' first' : ''}"><span class="s-time">${esc(l.dep)}${l.dep_day ? `<sup>+${l.dep_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(l.from_name)}${sub}</span></li>`;
+      const access = i === 0 && l.access_from ? `<em class="move">${ICON.walk}${esc(l.access_from)}</em>` : '';
+      h += `<li class="stop${i === 0 ? ' first' : ''}"><span class="s-time">${esc(l.dep)}${l.dep_day ? `<sup>+${l.dep_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(l.from_name)}${sub}${access}</span></li>`;
       const dur = l.duration_min ?? (absMin(l.arr, l.arr_day) - absMin(l.dep, l.dep_day));
       let body;
       if (l.free) {
@@ -797,7 +801,7 @@
         <a class="book" href="${esc(l.book_url)}" target="_blank" rel="noopener">Voir ce train sur SNCF Connect ${ICON.ext}</a></div></li>`;
     });
     const last = it.legs[it.legs.length - 1];
-    h += `<li class="stop last"><span class="s-time">${esc(last.arr)}${last.arr_day ? `<sup>+${last.arr_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(last.to_name)}<small>arrivée</small></span></li>`;
+    h += `<li class="stop last"><span class="s-time">${esc(last.arr)}${last.arr_day ? `<sup>+${last.arr_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(last.to_name)}<small>arrivée</small>${last.access_to ? `<em class="move">${ICON.walk}${esc(last.access_to)}</em>` : ''}</span></li>`;
     const sepNote = it.legs.length > 1
       ? `<p class="book-note sep-note"><b>Correspondances non garanties :</b> chaque train se réserve à part. Si le premier a du retard, le suivant ne l'attendra pas et ton billet n'est pas reporté automatiquement comme pour un trajet vendu d'un bloc par la SNCF. Garde de la marge, surtout pour le dernier train de la journée.</p>` : '';
     return h + `</ol>${sepNote}<p class="book-note">Le lien SNCF Connect

@@ -15,7 +15,8 @@ API = "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/tgvmax
 
 # Villes multi-gares regroupées sous "<VILLE> (intramuros)" dans le dataset.
 CITY_ALIASES = {
-    "paris": ["PARIS (intramuros)"],
+    "paris": ["PARIS (intramuros)", "MARNE LA VALLEE CHESSY", "MASSY TGV", "MASSY PALAISEAU",
+              "AEROPORT ROISSY CDG 2 TGV", "VERSAILLES CHANTIERS"],
     "lyon": ["LYON (intramuros)"],
     "marseille": ["MARSEILLE ST CHARLES", "MARSEILLE BLANCARDE"],
     "lille": ["LILLE (intramuros)"],
@@ -34,6 +35,16 @@ CITY_ALIASES = {
 }
 
 
+# Gares TGV d'Île-de-France proposées quand on cherche « Paris », avec le moyen d'y aller
+IDF_ACCESS = {
+    "MARNE LA VALLEE CHESSY": "RER A, environ 40 min depuis Châtelet, ticket 2,50 €",
+    "MASSY TGV": "RER B ou C, environ 30 min, ticket 2,50 €",
+    "MASSY PALAISEAU": "RER B ou C, environ 30 min, ticket 2,50 €",
+    "AEROPORT ROISSY CDG 2 TGV": "RER B, environ 35 min depuis Gare du Nord, billet aéroport ≈ 13 €",
+    "VERSAILLES CHANTIERS": "train ou RER C, environ 20 min depuis Montparnasse, ticket 2,50 €",
+}
+
+
 def normalize(s):
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
     return s.lower().replace("-", " ").replace("(intramuros)", "").replace(".", "").strip()
@@ -42,6 +53,8 @@ def normalize(s):
 def resolve_city(city, stations):
     """Libellés de gare du dataset correspondant à `city` (alias, exact, ou contient)."""
     key = city.strip().lower()
+    if city.strip() == "PARIS (intramuros)":      # gare choisie dans la liste : Paris + gares TGV d'Île-de-France
+        key = "paris"
     if key in CITY_ALIASES:
         hit = [s for s in CITY_ALIASES[key] if s in stations]
         return hit or CITY_ALIASES[key]
@@ -253,7 +266,7 @@ def search(edges, origins, targets, max_conn=3, max_results=40, min_dep=0, max_d
 
     seen, uniq = set(), []
     for p in found:
-        sig = tuple(l["train"] for l in p)
+        sig = tuple((l["train"], l["o"], l["d"]) for l in p)   # même train, autre gare de montée : trajet distinct
         if sig not in seen:
             seen.add(sig)
             uniq.append(p)
