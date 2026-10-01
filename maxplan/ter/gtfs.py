@@ -47,7 +47,7 @@ _days = {}                # date AAAAMMJJ -> (connexions triées, heures de dép
 _by_cell = {}             # date AAAAMMJJ -> (connexions, {maille: indices des tronçons})
 _memo = {}                # trajets déjà calculés
 _day_locks = {}           # une seule construction à la fois par journée
-DAYS_CACHED = 3           # journées gardées en mémoire (~15 Mo chacune ; relues du disque en ~30 ms)
+DAYS_CACHED = 5           # journées gardées en mémoire (~17 Mo chacune avec leur index ; relues du disque en ~30 ms)
 PRECOMPUTE_DAYS = 34      # tables préparées la nuit (sur disque, compressées)
 CELL = 0.5                # maillage géographique (degrés) pour ne parcourir que la zone utile
 
@@ -648,6 +648,102 @@ def journey(from_id, to_id, ymd, hhmm, max_transfers=3):
     return res
 
 
+def _csa_back(conns, idx, src, dst, deadline, max_legs):
+    """Départ au plus tard de src pour être à dst avant `deadline` (minutes), en au plus max_legs
+    véhicules : le même parcours des tronçons que _csa, mais à rebours (des derniers départs vers les
+    premiers). Sert au TER du départ : partir le plus tard possible en attrapant le TGV Max."""
+    trips, foot = _data["trips"], _data["foot"]
+    latest, legs_to, via = {dst: deadline}, {dst: 0}, {}
+    on_trip = {}                     # circulation -> (véhicules jusqu'à dst, rang de descente, arrêt)
+
+    def walk(x):
+        for y, w in foot.get(x, ()):
+            t = latest[x] - w
+            if t > latest.get(y, -1):
+                latest[y], legs_to[y], via[y] = t, legs_to[x], ("walk", x)
+
+    walk(dst)
+    C_dep, C_arr, C_a, C_b, C_ti, C_k = conns
+    for i in reversed(idx):
+        dep = C_dep[i]
+        if dep < latest.get(src, -1):       # on ne trouvera plus de départ plus tardif
+            break
+        arr = C_arr[i]
+        if arr > deadline:
+            continue
+        a, b, ti, k = C_a[i], C_b[i], C_ti[i], C_k[i]
+        st = trips[ti][3]
+        if ti not in on_trip:
+            if not st[4 * (k + 1) + 3] & F_DROP:
+                continue
+            t = latest.get(b, -1)
+            if t < 0 or arr + (0 if b == dst else MIN_TRANSFER) > t:
+                continue
+            n = legs_to[b] + 1
+            if n > max_legs:
+                continue
+            on_trip[ti] = (n, k + 1, b)
+        n, k1, b1 = on_trip[ti]
+        if st[4 * k + 3] & F_PICK and dep > latest.get(a, -1):
+            latest[a], legs_to[a], via[a] = dep, n, ("ride", ti, k, k1, b1)
+            walk(a)
+    if src not in via:
+        return None
+    path, cur, guard = [], src, 0
+    while cur != dst and cur in via and guard < 50:
+        v = via[cur]
+        guard += 1
+        if v[0] == "walk":
+            cur = v[1]
+        else:
+            path.append(v[1:4])
+            cur = v[4]
+    return path if cur == dst and path else None
+
+
+def journey_by(from_id, to_id, ymd, deadline, max_transfers=3):
+    """Meilleur trajet from -> to arrivant avant `deadline` (minutes depuis minuit du jour ymd) et
+    partant le plus tard possible (un changement compte 20 min). Même format que journey()."""
+    if not ready() or not covers(ymd):
+        return None
+    src, dst = _data["by_key"].get(_key(from_id)), _data["by_key"].get(_key(to_id))
+    if src is None or dst is None or src == dst:
+        return None
+    key = ("by", src, dst, ymd, deadline, max_transfers)
+    with _lock:
+        if key in _memo:
+            return _memo[key]
+    conns, deps = _connections(ymd)
+    cells = _box_cells(_data["areas"][src], _data["areas"][dst])
+    lo, hi = bisect.bisect_left(deps, max(0, deadline - 2 * HORIZON)), bisect.bisect_right(deps, deadline)
+    by_cell, parts = _cell_index(ymd, conns), []
+    for c in cells:
+        x = by_cell.get(c)
+        if x:
+            parts.append(x[bisect.bisect_left(x, lo):bisect.bisect_left(x, hi)])
+    idx = sorted(i for x in parts for i in x)
+    best = None
+    for legs in range(1, max_transfers + 2):
+        path = _csa_back(conns, idx, src, dst, deadline, legs)
+        if path:
+            st = _data["trips"][path[0][0]][3]
+            score = st[4 * path[0][1] + 2] - 20 * (len(path) - 1)
+            if best is None or score > best[0]:
+                best = (score, path)
+    res = _format(best[1]) if best else None
+    if res and res["dep_min"] < 1440:
+        # même heure de départ, mais l'itinéraire le plus rapide (le parcours à rebours garde le
+        # premier qui arrive à temps, pas forcément le plus direct)
+        fw = journey(from_id, to_id, ymd, res["departure"], max_transfers)
+        if fw and fw["arr_min"] <= deadline and fw["dep_min"] >= res["dep_min"]:
+            res = fw
+    with _lock:
+        if len(_memo) > 6000:
+            _memo.clear()
+        _memo[key] = res
+    return res
+
+
 def _format(path):
     trips, areas = _data["trips"], _data["areas"]
     sections, modes, networks = [], [], []
@@ -674,6 +770,7 @@ def _format(path):
         "modes": modes, "networks": networks, "sections": sections,
         "distance_km": round(sum(s["dist_km"] for s in sections)),
         "departure": _hm(first), "arrival": _hm(last), "source": "gtfs",
+        "dep_min": first, "arr_min": last,          # minutes depuis minuit du jour (peuvent dépasser 1440)
     }
 
 

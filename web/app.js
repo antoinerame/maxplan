@@ -1322,7 +1322,7 @@
     $$('[data-locate]').forEach(b => { b.innerHTML = ICON.locate; b.addEventListener('click', () => locate($('#' + b.dataset.locate))); });
     $$('.od-row>label').forEach(l => l.addEventListener('click', () => $('#' + l.htmlFor)?.focus()));
 
-    attachAC($('#s-from'), 'origin');
+    attachAC($('#s-from'), 'start');   // départ d'un trajet : aussi les villes sans train Max (TER au départ)
     attachAC($('#s-to'), 'dest');
     attachAC($('#e-from'), 'origin');
     attachAC($('#v-from'), 'origin');

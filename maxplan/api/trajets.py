@@ -299,16 +299,18 @@ def nearest_max(place, n=3, km=150):
     return list(dict.fromkeys(name for _, name in sorted(cands)))[:n]
 
 
-def od_areas(src, dst, stations):
+def od_areas(src, dst, stations, no_origin_ok=False):
     """Gares de départ et d'arrivée (avec leurs gares voisines). Les voisines ajoutées d'un côté ne
     doivent pas être des gares de l'autre (Massy → Paris : Paris n'est pas une « voisine » de départ).
     Si départ et arrivée se recoupent quand même, c'est la même ville : pas de trajet en train Max."""
     (o, o_near), (t, t_near) = gares.resolve_area(src, stations), gares.resolve_area(dst, stations)
     if not any(s in known for s in o for known in (stations, set(donnees.all_stations()))):
+        if no_origin_ok:                     # TER ou car au départ jusqu'à une gare Max
+            return [], {}, [x for x in t if x not in set(o)], t_near
         near = nearest_max(src)
         raise BadRequest(f"Pas de train Max au départ de « {src} »" + (
-            f" : pars d'une gare Max proche ({', '.join(near)}), en TER ou en car jusque-là." if near
-            else " : choisis une gare de la liste."))
+            f" : coche « Compléter en TER » pour y aller en TER ou en car, ou pars d'une gare Max proche"
+            f" ({', '.join(near)})." if near else " : choisis une gare de la liste."))
     shared = set(o_near) & set(t_near)            # Metz → Nancy : Lorraine TGV n'est ni l'un ni l'autre
     o = [s for s in o if s not in shared]
     t = [s for s in t if s not in shared]

@@ -1,10 +1,12 @@
 """Petites fonctions partagées : heures, distances, dates, noms de gares normalisés."""
 
+import functools
 import math
 import unicodedata
 from datetime import date as Date, timedelta
 
 
+@functools.lru_cache(maxsize=8192)        # appelée des centaines de milliers de fois sur les mêmes noms
 def normalize(s):
     """Nom comparable : sans accents ni tirets, et « saint » écrit « st » comme dans l'open data
     (« ST BRIEUC », « ST MALO »… ; on doit les trouver en tapant « Saint-Brieuc »)."""

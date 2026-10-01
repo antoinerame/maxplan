@@ -5,7 +5,9 @@ import bisect
 import threading
 
 from maxplan import config
-from maxplan.moteur.gares import TWINS, transfer_min, twin_change
+from maxplan.moteur.gares import PARIS_ANNEX, TWINS, city_station, transfer_min
+
+PARIS = "PARIS (intramuros)"
 
 
 _IDX = {}            # id(liste de trains du jour) -> (liste, index) : construit une fois par jour
@@ -58,9 +60,16 @@ def _departures(idx, station, path, lo, hi):
     for e in _window(idx, station, arrived, hi):
         yield e, None                        # attente mini calculée seulement si besoin (coûteuse)
     for other, mins, _ in TWINS.get(station, ()):
-        paris = "PARIS (intramuros)" in (station, other)
-        for e in _window(idx, other, arrived, hi):
-            yield e, (twin_change(station, other, path[-1], e)[0] if paris else mins)
+        if station == PARIS:                 # arrivé à Paris : dépend de la vraie gare d'arrivée (une fois)
+            m = PARIS_ANNEX.get((city_station(station, path[-1]), other), (mins,))[0]
+            for e in _window(idx, other, arrived, hi):
+                yield e, m
+        elif other == PARIS:                 # repartir de Paris : dépend de la gare de départ du train
+            for e in _window(idx, other, arrived, hi):
+                yield e, PARIS_ANNEX.get((city_station(other, e), station), (mins,))[0]
+        else:
+            for e in _window(idx, other, arrived, hi):
+                yield e, mins
 
 
 def night_overlap(start, end):

@@ -19,7 +19,9 @@ def do_stations(qs):
                         "max": True})
     # destinations : aussi des gares hors réseau Max (ex. Manosque), prises dans les horaires GTFS
     # (gratuit) ; l'API SNCF seulement en secours et quand il y a peu de gares Max
-    if kind == "dest" and (gtfs.ready() or len(out) < 3):
+    # départ d'un trajet (« start ») aussi : une ville sans train Max (Annecy, Gap) se rejoint en TER ou
+    # en car ; pas pour l'Explorer ni « Rentable ? » (« origin »), qui ne partent que d'une gare Max
+    if kind in ("dest", "start") and (gtfs.ready() or len(out) < 3):
 
         for p in (gtfs.places(q, limit=6) if gtfs.ready() else navitia.places(q, limit=6)):
             key = base.normalize(nice_place(p["name"]))

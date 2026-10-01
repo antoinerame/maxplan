@@ -17,7 +17,7 @@ from maxplan.api.commun import (
     senior_weekend, shift,
 )
 from maxplan.api.trajets import (
-    DAY_POOL, IO_POOL, _access_min, access, od_areas, booking_url, dest_place, detour_ratio, direct_fare,
+    DAY_POOL, IO_POOL, _access_min, access, nearest_max, od_areas, booking_url, dest_place, detour_ratio, direct_fare,
     display_name, drop_dominated, edges_for, free_place, geocode_many, itinerary_from_path,
     max_legs, nice_mode, nice_place, backtracks, path_detour, path_nocturnal, path_tickets, tail_end, change_tickets, ticket_price,
 )
@@ -54,13 +54,117 @@ def ter_estimated_notice():
             f"{when}. On reprend ceux du même jour de la semaine précédente ; vérifie sur SNCF Connect.")
 
 
+def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win, has_max):
+    """TER ou car du lieu de départ jusqu'à une gare Max proche, puis trains Max. Pour chaque train Max
+    au départ de la gare-relais, on cherche le TER qui part le plus tard en arrivant à temps (horaires
+    locaux, aucune requête à l'API). Renvoie [(relais, chemin Max, géo du relais, trajet TER)]."""
+    place = navitia.geocode(origins[0]) if origins else free_place(src)
+    if not place or not gtfs.ready() or not gtfs.knows(place.get("id", "")):
+        return []
+    dest = next((g for g in (navitia._cache.get(t) for t in targets) if g), None) or free_place(dst)
+    if not dest:
+        return []
+    direct = base.haversine_km(place["lat"], place["lon"], dest["lat"], dest["lon"])
+    # depuis une ville qui a des trains Max ce jour-là, on ne regarde que les grandes gares toutes proches ;
+    # sinon (Annecy un dimanche sans TGV) jusqu'à 150 km (Lyon, Chambéry, Grenoble…)
+    reach = config.ORIGIN_TER_KM_MAX_CITY if origins and has_max else config.ORIGIN_TER_KM
+    skip = set(origins) | set(targets)
+    cands = []
+    for s in stations - skip:
+        g = navitia._cache.get(s)
+        if not g or not gtfs.knows(g.get("id", "")):
+            continue
+        km = base.haversine_km(place["lat"], place["lon"], g["lat"], g["lon"])
+        to_dest = base.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
+        # proche du départ, et sur le chemin (pas Annecy → Genève pour aller à Marseille)
+        if km <= reach and km + to_dest <= config.DETOUR_MAX * max(direct, 1.0) and to_dest < direct + 30:
+            cands.append((km, s, g))
+    cands.sort(key=lambda c: c[0])
+    # gares-relais qui ont vraiment des trains Max vers l'arrivée ce jour-là, les plus proches d'abord
+    useful = []
+    for km, s, g in cands:
+        # d'abord (calcul léger) : cette gare a-t-elle des trains Max vers l'arrivée ?
+        if not parcours.search(edges, [s], targets, max_conn=opts["maxconn"], max_results=1,
+                               min_dep=win["min_dep"] + 20, max_dep=min(1440, win["max_dep"] + 300)):
+            continue
+        # première arrivée possible en TER à la gare-relais : seuls les trains Max qui partent après comptent
+        first = None
+        for t0 in range(max(240, win["min_dep"]), min(1380, win["max_dep"]) + 1, 300):   # 4 h, 9 h, 14 h…
+            first = gtfs.journey(place["id"], g["id"], date, base.min_to_hhmm(t0))
+            if first:
+                break
+        if not first or first["duration_min"] > config.TER_MAX_TAIL_MIN:
+            continue
+        ready = first["arr_min"] + gares.min_connection(s)
+        paths = parcours.search(edges, [s], targets, max_conn=opts["maxconn"], max_results=40,
+                                min_dep=ready, max_dep=min(1440, win["max_dep"] + 300))
+        if paths:
+            useful.append((s, g, paths))
+        if len(useful) >= (config.ORIGIN_TER_CANDIDATES if not (origins and has_max) else 2):
+            break
+    jobs = []
+    for rank, (s, g, paths) in enumerate(useful):
+        quota = (3, 2, 2, 1)[min(rank, 3)]
+        kept, last = [], None
+        for p in sorted(paths, key=lambda p: (p[-1]["arr"], -p[0]["dep"])):
+            if any(e["d"] in skip and e["d"] not in targets for e in p):
+                continue
+            if last is None or p[-1]["arr"] - last >= config.TER_ARRIVAL_SPACING_MIN:
+                kept.append(p)
+                last = p[-1]["arr"]
+            if len(kept) >= quota:
+                break
+        for p in kept:
+            deadline = p[0]["dep"] - gares.min_connection(s)
+            jr = gtfs.journey_by(place["id"], g["id"], date, deadline)
+            if not jr or jr["duration_min"] > config.TER_MAX_TAIL_MIN:
+                continue
+            if not (win["min_dep"] <= jr["dep_min"] <= win["max_dep"]):
+                continue
+            jobs.append((s, p, g, dict(jr, _place=place)))
+    return jobs
+
+
+def head_itinerary(job, date, geo, prefs):
+    """Trajet « TER puis Max » : le TER (ou car) du départ, puis les tronçons Max."""
+    s, path, g, jr = job
+    place = jr["_place"]
+    legs = max_legs(path, date, geo)
+    price = prix.estimate(jr["sections"], prefs)
+    tdep, tarr = jr["dep_min"], jr["arr_min"]
+    head = {
+        "free": False, "mode": " + ".join(dict.fromkeys(nice_mode(m) for m in jr["modes"])) or "TER",
+        "networks": list(dict.fromkeys(jr["networks"])), "train": "",
+        "from": place.get("id", ""), "to": s, "from_name": nice_place(place["name"]),
+        "to_name": legs[0]["from_name"] if "(intramuros)" in s else display_name(s, g),
+        "dep": jr["departure"], "arr": jr["arrival"], "dep_day": tdep // 1440, "arr_day": tarr // 1440,
+        "duration_min": tarr - tdep, "transfers": jr["transfers"], "price": price,
+        "steps": [{"mode": nice_mode(x["mode"]), "from": nice_place(x["from"]), "to": nice_place(x["to"]),
+                   "dep": x["dep"], "arr": x["arr"]} for x in jr["sections"]],
+        "path": [pt for x in jr["sections"] for pt in x["coords"]],
+        "from_lat": place["lat"], "from_lon": place["lon"], "to_lat": g["lat"], "to_lon": g["lon"],
+        "book_url": booking_url(place["name"], place, s, g, date, jr["departure"]),
+    }
+    return {
+        "_dep": tdep, "_arr": path[-1]["arr"], "_tickets": change_tickets(legs),
+        "type": "ter+max", "paid": True, "cost_eur": price["price"], "nresa": len(path),
+        "changes": len(path) + jr["transfers"],
+        "departure": jr["departure"], "arrival": legs[-1]["arr"], "arrival_day": path[-1]["arr"] // 1440,
+        "duration_min": path[-1]["arr"] - tdep,
+        "nocturnal": path_nocturnal(path) or parcours.night_overlap(tdep, tarr)
+                     or parcours.night_overlap(tarr, path[0]["dep"]),
+        "legs": [head] + legs,
+    }
+
+
 def search_one_day(src, dst, date, opts):
     prefs = opts["prefs"]
     if senior_weekend(prefs, date):
         return {"itineraries": [], "notice": SENIOR_NOTICE}
     edges = edges_for(date)
     stations = {e["o"] for e in edges} | {e["d"] for e in edges}
-    origins, o_near, targets, t_near = od_areas(src, dst, stations)   # + gares voisines (Lorraine TGV pour Metz…)
+    # + gares voisines (Lorraine TGV pour Metz…) ; départ sans train Max (Annecy, Gap) : TER au départ
+    origins, o_near, targets, t_near = od_areas(src, dst, stations, no_origin_ok=opts["ter"])
     win = dict(min_dep=opts["min_dep"], max_dep=opts["max_dep"])
 
     # 1) trajets 100 % Max
@@ -71,6 +175,12 @@ def search_one_day(src, dst, date, opts):
         edges, origins, targets, max_conn=opts["maxconn"], max_results=200, min_dep=opts["min_dep"])
     day_fastest = min((p[-1]["arr"] - p[0]["dep"] for p in day_paths if not path_nocturnal(p)
                        and not ticket_price(path_tickets(p, origins, targets, o_near, t_near))), default=None)
+    # trajets gratuits bien plus longs que le plus rapide du jour : écartés tout de suite (ils le seraient
+    # plus bas de toute façon), avant de construire leur affichage
+    if day_fastest:
+        f = day_fastest
+        max_paths = [p for p in max_paths if ticket_price(path_tickets(p, origins, targets, o_near, t_near))
+                     or p[-1]["arr"] - p[0]["dep"] <= (max(2 * f, f + 720) if path_nocturnal(p) else max(2 * f, f + 240))]
     labels = set(origins)
     for p in max_paths:
         for e in p:
@@ -157,8 +267,18 @@ def search_one_day(src, dst, date, opts):
             ter_itins.append((path, s, g, jr, ready, estimated))
             labels.update(e for leg in path for e in (leg["o"], leg["d"]))
 
+    # 3) TER au départ : depuis une ville sans train Max (Annecy, Gap) ou pour attraper un train Max
+    #    d'une grande gare proche (Saint-Étienne → Lyon Part-Dieu), en partant le plus tard possible
+    # depuis une ville bien desservie (au moins 4 trajets Max ce jour-là), inutile de chercher plus loin
+    day_trips = [p for p in max_paths if not path_nocturnal(p)]
+    head_jobs = origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win,
+                                bool(max_paths)) if opts["ter"] and len(day_trips) < 4 else []
+    for _, path, _, _ in head_jobs:
+        labels.update(e for leg in path for e in (leg["o"], leg["d"]))
+
     geo = geocode_many(list(labels))
     out = [dict(itinerary_from_path(p, date, geo)) for p in max_paths]
+    out += [head_itinerary(job, date, geo, prefs) for job in head_jobs]
 
     homes = [geo[o] for o in origins if geo.get(o)]
 
@@ -307,6 +427,10 @@ def search_one_day(src, dst, date, opts):
             it["detour"] = True
     order = lambda it: (it["paid"], it["departure"])
     res = {"itineraries": sorted(shown, key=order)}
+    if not origins and not shown and not night:
+        near = nearest_max(src)
+        res["notice"] = (f"Pas de train Max au départ de « {src} », et aucun TER ou car ne rejoint à temps une "
+                         f"gare Max proche{' (' + ', '.join(near) + ')' if near else ''} ce jour-là.")
     if not opts["nights"] and night:
         res["night_itineraries"] = sorted(night, key=order)
     if any(it.get("estimated_schedule") for it in shown + night):
@@ -314,8 +438,8 @@ def search_one_day(src, dst, date, opts):
     if opts.get("ter_limited"):
         res["ter_notice"] = ("Compléments TER en pause pour toi aujourd'hui : tu as fait beaucoup de recherches "
                              "avec TER. Les trains Max restent affichés ; réessaie demain.")
-    if opts.get("ter_limited") or (opts["ter"] and navitia.over_budget()):
-        res["_nocache"] = True
+    if opts.get("ter_limited") or (opts["ter"] and (navitia.over_budget() or not gtfs.ready())):
+        res["_nocache"] = True            # (horaires locaux pas encore chargés : réponse incomplète)
     if opts["ter"] and navitia.over_budget():
         res["ter_notice"] = ("Compléments TER indisponibles pour le reste de la journée : le site a atteint "
                              "sa limite quotidienne de requêtes à l'API SNCF. Les trains Max restent affichés.")
@@ -357,7 +481,8 @@ def do_search(qs):
     if fd == td and start_min is not None and end_min is not None and start_min > end_min:
         raise BadRequest("L'heure de début est après l'heure de fin.")
     known = set(donnees.all_stations())
-    _, _, all_targets, _ = od_areas(src, dst, known)   # départ inconnu, même ville : erreur tout de suite
+    # départ inconnu, même ville : erreur tout de suite (départ sans train Max : possible avec le TER)
+    _, _, all_targets, _ = od_areas(src, dst, known, no_origin_ok=_flag(qs, "ter", True))
     prefs = prix.prefs_from_qs(qs)
     common = {
         "prefs": prefs, "maxconn": _int(qs, "maxconn", 3, 0, 3),
