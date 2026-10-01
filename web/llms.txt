@@ -1,0 +1,13 @@
+# MaxPlan (Max Planner)
+
+> Site gratuit et indépendant (non officiel) qui trouve les trains à 0 € des abonnements SNCF Max Jeune (16-27 ans) et Max Senior (60 ans et plus) : TGV INOUI et Intercités, y compris en enchaînant plusieurs trains et en finissant en TER ou en car régional. https://maxplan.fr
+
+- Recherche : gare de départ, gare d'arrivée, dates ; aller simple ou aller-retour. Les trains Max à 0 € sont listés avec les correspondances recomposées (jusqu'à 3), les gares voisines (Paris avec Massy, Marne-la-Vallée, Roissy ; Lyon avec Saint-Exupéry ; Metz avec Lorraine TGV…) et un complément TER ou car avec son prix estimé quand la destination n'a pas de TGV Max.
+- Calendrier du mois : nombre de trains à 0 € par jour sur une liaison.
+- Explorer : toutes les destinations accessibles à 0 € depuis une ville, un jour donné.
+- « Rentable ? » : l'abonnement Max (79 € par mois) est-il rentable pour des trajets habituels, d'après les places à 0 € et les tarifs officiels SNCF.
+- Infos : comment la SNCF ouvre les places Max (effet des vacances, des week-ends, des dates lointaines).
+
+Données : open data SNCF « tgvmax » (licence ODbL), mise à jour une fois par jour ; horaires GTFS SNCF et réseaux régionaux. Une place affichée peut être partie depuis : la réservation se fait sur SNCF Connect. Les correspondances entre trains réservés séparément ne sont pas garanties.
+
+Code source : https://github.com/antoinerame/maxplan
