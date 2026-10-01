@@ -126,17 +126,36 @@ def train_mode(axe):
     return "TGV INOUI"
 
 
+# noms des horaires SNCF -> noms courts affichés (et utilisés pour décrire les changements de gare)
+GTFS_NAMES = {"Paris Gare de Lyon Hall 1 - 2": "Paris Gare de Lyon", "Paris Montparnasse Hall 1 - 2": "Paris Montparnasse",
+              "Paris Bercy Bourg. Pays d'Auv.": "Paris Bercy", "Paris Gare du Nord": "Paris Nord",
+              "Lyon Part Dieu": "Lyon Part-Dieu"}
+
+
+def real_station(label, edge, date, when):
+    """Vraie gare d'un libellé « intramuros » (Paris, Lyon, Lille) pour ce train : d'abord les horaires
+    SNCF (on sait si le TGV part de Lyon Part-Dieu ou de Perrache), sinon l'axe du train (Paris)."""
+    if "(intramuros)" not in label:
+        return None
+    minute = edge["dep"] if when == "dep" else edge["arr"]
+    st = gtfs.train_stop(edge["train"], date, minute, when) if gtfs.ready() else None
+    if st:
+        name = nice_place(st["name"])
+        return dict(st, name=GTFS_NAMES.get(name, name))
+    s = gares.city_station(label, edge)
+    if s:
+        la, lo = gares.PARIS_COORDS[s]
+        return {"name": s, "lat": la, "lon": lo}
+    return None
+
+
 def max_leg(edge, date, geo):
     o, d = edge["o"], edge["d"]
     og, dg = geo.get(o), geo.get(d)
-    # Paris : la vraie gare (Gare de Lyon, Montparnasse…) d'après l'axe du train
-    so, sd = gares.city_station(o, edge), gares.city_station(d, edge)
-    if so:
-        la, lo = gares.PARIS_COORDS[so]
-        og = {"name": so, "lat": la, "lon": lo}
-    if sd:
-        la, lo = gares.PARIS_COORDS[sd]
-        dg = {"name": sd, "lat": la, "lon": lo}
+    # vraie gare (Lyon Part-Dieu ou Perrache, Paris Gare de Lyon ou Bercy…) quand l'open data dit « intramuros »
+    ro, rd = real_station(o, edge, date, "dep"), real_station(d, edge, date, "arr")
+    so, sd = ro and ro["name"], rd and rd["name"]
+    og, dg = ro or og, rd or dg
     dep = base.min_to_hhmm(edge["dep"])
     return {
         "free": True, "mode": train_mode(edge.get("axe", "")),
@@ -238,12 +257,16 @@ def drop_dominated(itins):
     # même voyage en double : mêmes heures, même prix, même gare de départ (un train qui dessert deux
     # gares de la même ville, Part-Dieu puis Perrache, toutes deux « LYON (intramuros) », ou un train
     # à deux numéros) : on n'en garde qu'un, comme la recherche
+    # à doublon égal, on garde la variante sans changement de gare (Part-Dieu → Part-Dieu plutôt que
+    # Part-Dieu → Perrache pour le même train)
+    moves = [sum(1 for l in it["legs"] if l.get("change_note")) for it in itins]
+
     def same(j, i):
-        return span[j] == span[i] and cost[j] == cost[i] and first[j] == first[i]             and len(itins[j]["legs"]) == len(itins[i]["legs"])
+        return span[j] == span[i] and cost[j] == cost[i] and first[j] == first[i]             and len(itins[j]["legs"]) == len(itins[i]["legs"]) and (moves[j], j) < (moves[i], i)
 
     n = len(itins)
     return [x for i, x in enumerate(itins)
-            if not any(beats(j, i) or (j < i and same(j, i)) for j in range(n) if j != i)]
+            if not any(beats(j, i) or same(j, i) for j in range(n) if j != i)]
 
 
 def od_areas(src, dst, stations):
@@ -287,20 +310,26 @@ def max_trips(paths, origins, targets, o_near=None, t_near=None, nights=False):
     for p in paths:
         if path_ratio(p) > config.DETOUR_ABSURD:
             continue
-        it = {"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p, "nocturnal": path_nocturnal(p)}
-        a = access(p[0]["o"], origins, o_near or {})
-        if a:
-            it["_pre"], it["_acc_cost"] = a[2], a[3]
-        a = access(p[-1]["d"], targets, t_near or {})
-        if a:
-            it["_post"], it["_acc_cost"] = a[2], it.get("_acc_cost", 0) + a[3]
+        extra = round(sum(c for c in (note_cost(gares.twin_note(a["d"], b["o"], a, b)) for a, b in zip(p, p[1:])
+                                      if a["d"] != b["o"]) if c >= config.TRANSFER_PAID_MIN), 2)
+        it = {"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": extra, "legs": p,
+              "nocturnal": path_nocturnal(p)}
+        for k, a in (("_pre", access(p[0]["o"], origins, o_near or {})), ("_post", access(p[-1]["d"], targets, t_near or {}))):
+            if a:
+                it[k] = a[2]
+                if a[3] >= config.TRANSFER_PAID_MIN:       # comme la recherche : ce trajet n'est pas à 0 €
+                    it["cost_eur"] = round(it["cost_eur"] + a[3], 2)
+                else:
+                    it["_acc_cost"] = it.get("_acc_cost", 0) + a[3]
         its.append(it)
     dur = lambda x: x["_arr"] - x["_dep"]
-    fastest = min((dur(x) for x in its if not x["nocturnal"]), default=None) or min(map(dur, its), default=None)
+    free = [x for x in its if not x["cost_eur"]]        # comme la recherche : le plus rapide des gratuits
+    fastest = min((dur(x) for x in free if not x["nocturnal"]), default=None) or min(map(dur, free), default=None)
     if fastest:
         its = [x for x in its if dur(x) <= (max(2 * fastest, fastest + 720) if x["nocturnal"]
                                             else max(2 * fastest, fastest + 240))]
-    return drop_dominated(its if nights else [x for x in its if not x["nocturnal"]])
+    kept = drop_dominated(its if nights else [x for x in its if not x["nocturnal"]])
+    return [x for x in kept if not x["cost_eur"]]      # « trains à 0 € » : sans changement payant
 
 
 def detour_ratio(origins, relay, fgeo, dest, direct_km):
@@ -347,18 +376,38 @@ def max_legs(path, date, geo):
     """Tronçons Max d'un trajet ; quand on change de gare jumelle (Massy → Marne-la-Vallée…),
     le tronçon suivant dit comment faire."""
     legs = [max_leg(e, date, geo) for e in path]
-    for prev, e, leg in zip(path, path[1:], legs[1:]):
+    for prev, e, pleg, leg in zip(path, path[1:], legs, legs[1:]):
         if e["o"] != prev["d"]:
-            leg["change_note"] = gares.twin_note(prev["d"], e["o"], prev, e)
+            note = gares.twin_note(prev["d"], e["o"], prev, e)
+            if note and pleg["to_name"] == "Lyon Perrache" and "Part-Dieu" in note:
+                note = "tram T1 ou métro jusqu'à Lyon Part-Dieu, puis " + note
+        elif pretty(e["o"]) not in (pleg["to_name"], leg["from_name"]):
+            # même libellé, autre gare réelle (TGV arrivé à Part-Dieu, suivant au départ de Perrache) ;
+            # si l'une des deux gares est inconnue (« Lyon »), on ne devine pas
+            note = gares.city_change_note(pleg["to_name"], leg["from_name"])
+        else:
+            note = None
+        if note:
+            leg["change_note"] = note
+            leg["change_cost"] = note_cost(note)
     return legs
+
+
+def transfer_cost(legs):
+    """Changements de gare vraiment payants dans un trajet (Rhônexpress ≈ 17 €, billet aéroport ≈ 14 €) :
+    le trajet n'est alors plus « à 0 € ». Les petits tickets (métro, navette à 2-3 €) sont signalés
+    dans le détail sans changer le prix affiché."""
+    return round(sum(c for c in (l.get("change_cost", 0) for l in legs) if c >= config.TRANSFER_PAID_MIN), 2)
 
 
 def itinerary_from_path(path, date, geo):
 
     legs = max_legs(path, date, geo)
+    extra = transfer_cost(legs)
     return {
         "_dep": path[0]["dep"], "_arr": path[-1]["arr"],
-        "type": "max", "paid": False, "cost_eur": 0, "nresa": len(legs), "changes": len(legs) - 1,
+        "type": "max", "paid": extra > 0, "cost_eur": extra, "transfer_cost": extra,
+        "nresa": len(legs), "changes": len(legs) - 1,
         "departure": legs[0]["dep"], "arrival": legs[-1]["arr"],
         "arrival_day": path[-1]["arr"] // 1440,
         "duration_min": path[-1]["arr"] - path[0]["dep"],

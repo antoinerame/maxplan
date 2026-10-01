@@ -19,7 +19,7 @@ from maxplan.api.commun import (
 from maxplan.api.trajets import (
     DAY_POOL, IO_POOL, _access_min, access, od_areas, booking_url, dest_place, detour_ratio, direct_fare,
     display_name, drop_dominated, edges_for, free_place, geocode_many, itinerary_from_path,
-    max_legs, nice_mode, nice_place, path_detour, path_nocturnal, tail_end,
+    max_legs, nice_mode, nice_place, path_detour, path_nocturnal, tail_end, transfer_cost,
 )
 
 
@@ -171,6 +171,7 @@ def search_one_day(src, dst, date, opts):
         if back_home(g, jr):
             continue
         legs = max_legs(path, date, geo)
+        extra = transfer_cost(legs)                    # Rhônexpress, billet aéroport…
         last_arr = path[-1]["arr"]
         tdep = base.hhmm_to_min(jr["departure"]) if jr.get("departure") else ready % 1440
         ter_dep = (ready // 1440) * 1440 + tdep
@@ -200,7 +201,8 @@ def search_one_day(src, dst, date, opts):
         })
         out.append({
             "_dep": path[0]["dep"], "_arr": ter_arr,
-            "type": "max+ter", "paid": True, "cost_eur": price["price"], "nresa": len(path),
+            "type": "max+ter", "paid": True, "cost_eur": round(price["price"] + extra, 2),
+            "transfer_cost": extra, "nresa": len(path),
             "changes": len(path) + jr["transfers"],
             "departure": legs[0]["dep"], "arrival": jr["arrival"], "arrival_day": ter_arr // 1440,
             "duration_min": ter_arr - path[0]["dep"],
@@ -210,6 +212,23 @@ def search_one_day(src, dst, date, opts):
             "legs": legs,
         })
 
+    # depuis / vers une gare annexe (Massy quand on a cherché « Paris ») ou voisine (Lorraine TGV pour
+    # Metz) : comment y aller ; ce temps et ce prix comptent pour comparer les trajets entre eux
+    for it in out:
+        first, last = it["legs"][0], it["legs"][-1]
+        for side, a in (("from", access(first["from"], origins, o_near)), ("to", access(last["to"], targets, t_near))):
+            if not a:
+                continue
+            if side == "from":
+                first["access_from"], it["_pre"] = f"Depuis {a[0]} : {a[1]}", a[2]
+            else:
+                last["access_to"], it["_post"] = f"Vers {a[0]} : {a[1]}", a[2]
+            if a[3] >= config.TRANSFER_PAID_MIN:     # Rhônexpress pour Saint-Exupéry, billet aéroport… : pas gratuit
+                it["cost_eur"] = round(it["cost_eur"] + a[3], 2)
+                it["transfer_cost"] = round(it.get("transfer_cost", 0) + a[3], 2)
+                it["paid"] = True
+            else:                                     # petit ticket : compte seulement pour comparer
+                it["_acc_cost"] = it.get("_acc_cost", 0) + a[3]
     # Trajets de jour : les meilleurs sans la nuit. Trajets de nuit : ceux qui restent intéressants
     # même face aux trajets de jour (sinon on ne propose pas une nuit en gare pour rien).
     # Détours absurdes : un trajet de jour bien plus long que le plus rapide du jour ne sert à rien.
@@ -250,17 +269,6 @@ def search_one_day(src, dst, date, opts):
             it["detour"] = True
         kept.append(it)
     out = kept
-    # depuis / vers une gare annexe (Massy quand on a cherché « Paris ») ou voisine (Lorraine TGV pour
-    # Metz) : comment y aller ; ce temps et ce prix comptent pour comparer les trajets entre eux
-    for it in out:
-        first, last = it["legs"][0], it["legs"][-1]
-        a = access(first["from"], origins, o_near)
-        if a:
-            first["access_from"], it["_pre"], it["_acc_cost"] = f"Depuis {a[0]} : {a[1]}", a[2], a[3]
-        a = access(last["to"], targets, t_near)
-        if a:
-            last["access_to"], it["_post"] = f"Vers {a[0]} : {a[1]}", a[2]
-            it["_acc_cost"] = it.get("_acc_cost", 0) + a[3]
     day = drop_dominated([it for it in out if not it["nocturnal"]])
     full = drop_dominated(out)
     night = [it for it in full if it["nocturnal"]]

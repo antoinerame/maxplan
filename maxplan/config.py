@@ -75,6 +75,7 @@ PROXY_HOPS = int(os.environ.get("PROXY_HOPS", "1"))
 CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip()
 
 # Cohérence des trajets proposés
+TRANSFER_PAID_MIN = 5          # changement de gare à partir de ce prix (Rhônexpress, aéroport) : trajet payant
 DETOUR_MAX_EXPLORE = 1.6         # Explorer : destination via une correspondance trop détournée, masquée
 DETOUR_ABSURD = 3.0             # trajet gratuit plus détourné que ça (Marseille → Paris → Nice) : retiré
 DETOUR_MAX_PAID = 2.0            # trajet avec TER payant plus détourné que ça : retiré (pas juste replié)
