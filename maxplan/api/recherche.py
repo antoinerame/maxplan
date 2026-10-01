@@ -6,19 +6,20 @@ import traceback
 
 from maxplan import base
 from maxplan import config
+from maxplan.moteur import donnees
 from maxplan.moteur import gares
 from maxplan.moteur import parcours
 from maxplan.ter import gtfs
 from maxplan.ter import prix
 from maxplan.ter.navitia import navitia
 from maxplan.api.commun import (
-    BadRequest, SENIOR_NOTICE, TIME_RE, _flag, _int, _p, _place, check_date, past_min,
+    BadRequest, SENIOR_NOTICE, TIME_RE, _flag, _int, _p, _place, check_date, check_time, past_min,
     senior_weekend, shift,
 )
 from maxplan.api.trajets import (
-    DAY_POOL, IO_POOL, _access_min, booking_url, dest_place, detour_ratio, direct_fare,
+    DAY_POOL, IO_POOL, _access_min, access, od_areas, booking_url, dest_place, detour_ratio, direct_fare,
     display_name, drop_dominated, edges_for, free_place, geocode_many, itinerary_from_path,
-    max_legs, nice_mode, nice_place, path_detour, path_nocturnal, tail_end,
+    max_legs, nice_mode, nice_place, path_detour, path_nocturnal, tail_end, transfer_cost,
 )
 
 
@@ -59,12 +60,16 @@ def search_one_day(src, dst, date, opts):
         return {"itineraries": [], "notice": SENIOR_NOTICE}
     edges = edges_for(date)
     stations = {e["o"] for e in edges} | {e["d"] for e in edges}
-    origins, o_near = gares.resolve_area(src, stations)     # + gares voisines (Lorraine TGV pour Metz…)
-    targets, t_near = gares.resolve_area(dst, stations)
+    origins, o_near, targets, t_near = od_areas(src, dst, stations)   # + gares voisines (Lorraine TGV pour Metz…)
     win = dict(min_dep=opts["min_dep"], max_dep=opts["max_dep"])
 
     # 1) trajets 100 % Max
-    max_paths = parcours.search(edges, origins, targets, max_conn=opts["maxconn"], max_results=60, **win)
+    max_paths = parcours.search(edges, origins, targets, max_conn=opts["maxconn"], max_results=200, **win)
+    # durée du trajet Max le plus rapide de toute la journée (même si on ne cherche qu'entre 10 h et 15 h) :
+    # sert à écarter les détours absurdes, qui sinon s'afficheraient seuls dans une petite plage horaire
+    day_paths = max_paths if win == {"min_dep": 0, "max_dep": 1440} else parcours.search(
+        edges, origins, targets, max_conn=opts["maxconn"], max_results=200, min_dep=opts["min_dep"])
+    day_fastest = min((p[-1]["arr"] - p[0]["dep"] for p in day_paths if not path_nocturnal(p)), default=None)
     labels = set(origins)
     for p in max_paths:
         for e in p:
@@ -152,8 +157,21 @@ def search_one_day(src, dst, date, opts):
     geo = geocode_many(list(labels))
     out = [dict(itinerary_from_path(p, date, geo)) for p in max_paths]
 
+    homes = [geo[o] for o in origins if geo.get(o)]
+
+    def back_home(g, jr):
+        """Le TER repasse-t-il par la ville de départ (Toulouse → Montauban en TGV, puis TER par
+        Toulouse jusqu'à Rodez) ? Alors un TER direct depuis le départ ferait mieux."""
+        pts = [pt for x in jr["sections"] for pt in x.get("coords", ())]
+        return any(base.haversine_km(h["lat"], h["lon"], g["lat"], g["lon"]) > 25
+                   and any(base.haversine_km(h["lat"], h["lon"], la, lo) < 8 for la, lo in pts)
+                   for h in homes)
+
     for path, s, g, jr, ready, estimated in ter_itins:
+        if back_home(g, jr):
+            continue
         legs = max_legs(path, date, geo)
+        extra = transfer_cost(legs)                    # Rhônexpress, billet aéroport…
         last_arr = path[-1]["arr"]
         tdep = base.hhmm_to_min(jr["departure"]) if jr.get("departure") else ready % 1440
         ter_dep = (ready // 1440) * 1440 + tdep
@@ -183,7 +201,8 @@ def search_one_day(src, dst, date, opts):
         })
         out.append({
             "_dep": path[0]["dep"], "_arr": ter_arr,
-            "type": "max+ter", "paid": True, "cost_eur": price["price"], "nresa": len(path),
+            "type": "max+ter", "paid": True, "cost_eur": round(price["price"] + extra, 2),
+            "transfer_cost": extra, "nresa": len(path),
             "changes": len(path) + jr["transfers"],
             "departure": legs[0]["dep"], "arrival": jr["arrival"], "arrival_day": ter_arr // 1440,
             "duration_min": ter_arr - path[0]["dep"],
@@ -193,15 +212,48 @@ def search_one_day(src, dst, date, opts):
             "legs": legs,
         })
 
+    # depuis / vers une gare annexe (Massy quand on a cherché « Paris ») ou voisine (Lorraine TGV pour
+    # Metz) : comment y aller ; ce temps et ce prix comptent pour comparer les trajets entre eux
+    for it in out:
+        first, last = it["legs"][0], it["legs"][-1]
+        for side, a in (("from", access(first["from"], origins, o_near)), ("to", access(last["to"], targets, t_near))):
+            if not a:
+                continue
+            if side == "from":
+                first["access_from"], it["_pre"] = f"Depuis {a[0]} : {a[1]}", a[2]
+            else:
+                last["access_to"], it["_post"] = f"Vers {a[0]} : {a[1]}", a[2]
+            if a[3] >= config.TRANSFER_PAID_MIN:     # Rhônexpress pour Saint-Exupéry, billet aéroport… : pas gratuit
+                it["cost_eur"] = round(it["cost_eur"] + a[3], 2)
+                it["transfer_cost"] = round(it.get("transfer_cost", 0) + a[3], 2)
+                it["paid"] = True
+            else:                                     # petit ticket : compte seulement pour comparer
+                it["_acc_cost"] = it.get("_acc_cost", 0) + a[3]
     # Trajets de jour : les meilleurs sans la nuit. Trajets de nuit : ceux qui restent intéressants
     # même face aux trajets de jour (sinon on ne propose pas une nuit en gare pour rien).
     # Détours absurdes : un trajet de jour bien plus long que le plus rapide du jour ne sert à rien.
     # De nuit, on tolère plus long (un train de nuit dure ~10 h), mais pas 20 h avec une nuit en gare.
-    fastest = min((it["duration_min"] for it in out if not it["nocturnal"]), default=None) \
-        or min((it["duration_min"] for it in out), default=None)
-    if fastest:
-        out = [it for it in out if it["duration_min"] <= (
-            max(2 * fastest, fastest + 720) if it["nocturnal"] else max(2 * fastest, fastest + 240))]
+    # Les trajets 100 % Max se comparent entre eux (comme le calendrier les compte) : un TER payant plus
+    # rapide ne fait pas disparaître un trajet gratuit.
+    def fastest_of(items):
+        return min((it["duration_min"] for it in items if not it["nocturnal"]), default=None) \
+            or min((it["duration_min"] for it in items), default=None)
+
+    fast_all, fast_free = fastest_of(out), fastest_of([it for it in out if not it["paid"]])
+    if day_fastest:
+        fast_free = min(fast_free or day_fastest, day_fastest)
+        fast_all = min(fast_all or day_fastest, day_fastest)
+    # Max + TER payant alors qu'un trajet gratuit part à peine plus tôt (30 min) et arrive avant :
+    # inutile (Paris → Nîmes puis TER retour vers Avignon, quand un Marne-la-Vallée → Avignon existe)
+    free_day = [it for it in out if not it["paid"] and not it["nocturnal"]]
+    out = [it for it in out if not it["paid"] or not any(
+        f["_dep"] >= it["_dep"] - 30 and f["_arr"] <= it["_arr"] for f in free_day)]
+
+    def not_too_long(it):
+        f = fast_all if it["paid"] else fast_free
+        return not f or it["duration_min"] <= (max(2 * f, f + 720) if it["nocturnal"] else max(2 * f, f + 240))
+
+    out = [it for it in out if not_too_long(it)]
     # Max + TER plus cher qu'un vrai billet direct (tarif officiel habituel) : sans intérêt
     fare = direct_fare(tuple(origins), tuple(targets))
     if fare:
@@ -211,37 +263,18 @@ def search_one_day(src, dst, date, opts):
     kept = []
     for it in out:
         r = path_detour(it["legs"])
-        if it["paid"] and r > config.DETOUR_MAX_PAID:
+        if r > (config.DETOUR_MAX_PAID if it["paid"] else config.DETOUR_ABSURD):
             continue
         if r > config.DETOUR_MAX:
             it["detour"] = True
         kept.append(it)
     out = kept
-    # depuis / vers une gare annexe (Massy quand on a cherché « Paris ») ou voisine (Lorraine TGV pour
-    # Metz) : comment y aller, et ce temps compte pour comparer les trajets entre eux
-    def access(station, ends, near):
-        a = gares.ANNEX.get(station)
-        if a and a[0] in ends and a[0] not in near:
-            return a[1], a[2], _access_min(station)
-        if station in near:
-            s0, mins, note = near[station]
-            return display_name(s0, navitia._cache.get(s0)), note, gares.note_minutes(note, mins)
-        return None
-
-    for it in out:
-        first, last = it["legs"][0], it["legs"][-1]
-        a = access(first["from"], origins, o_near)
-        if a:
-            first["access_from"], it["_pre"] = f"Depuis {a[0]} : {a[1]}", a[2]
-        a = access(last["to"], targets, t_near)
-        if a:
-            last["access_to"], it["_post"] = f"Vers {a[0]} : {a[1]}", a[2]
     day = drop_dominated([it for it in out if not it["nocturnal"]])
     full = drop_dominated(out)
     night = [it for it in full if it["nocturnal"]]
     shown = full if opts["nights"] else day
     for it in out:
-        for k in ("_dep", "_arr", "_pre", "_post"):
+        for k in ("_dep", "_arr", "_pre", "_post", "_acc_cost"):
             it.pop(k, None)
     def unique(items):
         """Même départ, même arrivée, même prix : une seule ligne (la plus simple : moins de
@@ -249,7 +282,8 @@ def search_one_day(src, dst, date, opts):
         best = {}
         for it in items:
             k = (it["departure"], it["arrival"], it["arrival_day"], it["cost_eur"], it["legs"][0]["from_name"])
-            score = (len(it["legs"]), path_detour(it["legs"]))
+            moves = sum(1 for l in it["legs"] if l.get("change_note"))   # changement de gare évitable
+            score = (len(it["legs"]), moves, path_detour(it["legs"]))
             if k not in best or score < best[k][0]:
                 best[k] = (score, it)
         keep = {id(v[1]) for v in best.values()}
@@ -303,9 +337,10 @@ def do_search(qs):
     dates = list(base.daterange(fd, td))
     if len(dates) > config.MAX_RANGE_DAYS:
         raise BadRequest(f"Période trop longue : {config.MAX_RANGE_DAYS} jours maximum.")
-    start, end = _p(qs, "start"), _p(qs, "end")
-    start_min = base.hhmm_to_min(start) if TIME_RE.match(start) else None
-    end_min = base.hhmm_to_min(end) if TIME_RE.match(end) else None
+    start_min, end_min = check_time(_p(qs, "start"), "de départ"), check_time(_p(qs, "end"), "d'arrivée")
+    if fd == td and start_min is not None and end_min is not None and start_min > end_min:
+        raise BadRequest("L'heure de début est après l'heure de fin.")
+    od_areas(src, dst, set(donnees.all_stations()))   # départ inconnu, même ville : erreur tout de suite
     prefs = prix.prefs_from_qs(qs)
     common = {
         "prefs": prefs, "maxconn": _int(qs, "maxconn", 3, 0, 3),
@@ -320,6 +355,8 @@ def do_search(qs):
                     max_dep=end_min if (day == td and end_min is not None) else 1440)
         try:
             r = search_one_day(src, dst, day, opts)
+        except BadRequest as e:
+            r = {"itineraries": [], "error": str(e)}
         except Exception:
             traceback.print_exc()
             r = {"itineraries": [], "error": "Données indisponibles pour ce jour, réessaie plus tard."}

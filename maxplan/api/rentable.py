@@ -10,9 +10,9 @@ from maxplan.ter import gtfs
 from maxplan.ter import prix
 from maxplan.ter import tarifs
 from maxplan.ter.navitia import navitia
-from maxplan.api.commun import BadRequest, _p, _place, senior_weekend, shift, weekday_idx
+from maxplan.api.commun import BadRequest, _p, _place, coming_dates, senior_weekend, shift, weekday_idx
 from maxplan.api.trajets import (
-    DAY_POOL, dest_place, display_name, drop_dominated, edges_for, path_nocturnal, tail_end,
+    DAY_POOL, dest_place, display_name, edges_for, max_trips, od_areas, path_nocturnal, tail_end,
 )
 
 
@@ -25,7 +25,8 @@ def do_value(qs):
         raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
     kind = _p(qs, "days", "all")
     prefs = prix.prefs_from_qs(qs)
-    dates = [d for d in donnees.dataset_dates()
+    od_areas(src, dst, set(donnees.all_stations()))   # départ inconnu, même ville : erreur claire
+    dates = [d for d in coming_dates()
              if kind == "all" or (weekday_idx(d) >= 5) == (kind == "weekend")]
     known = set(donnees.all_stations())
 
@@ -71,9 +72,13 @@ def do_value(qs):
         except Exception:
             return None
         stations = {e["o"] for e in edges} | {e["d"] for e in edges}
-        origins, targets = gares.resolve_city(a, stations), gares.resolve_city(b, stations)
-        paths = [p for p in parcours.search(edges, origins, targets, max_conn=1, max_results=80) if not path_nocturnal(p)]
-        its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p} for p in paths])
+        try:
+            origins, o_near, targets, t_near = od_areas(a, b, stations)
+        except BadRequest:
+            return 0, None, None
+        # jusqu'à 3 correspondances, comme le calendrier affiché à côté
+        its = max_trips(parcours.search(edges, origins, targets, max_conn=3, max_results=200),
+                        origins, targets, o_near, t_near)
         direct = [x["_arr"] - x["_dep"] for x in its if len(x["legs"]) == 1]
         ter = None if its else ter_option(date, edges, origins, targets, dest)
         return len(its), min(direct, default=None), ter

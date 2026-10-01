@@ -38,9 +38,15 @@ ANNEX = {
     "MARNE LA VALLEE CHESSY": ("PARIS (intramuros)", "Paris", "RER A, environ 40 min depuis Châtelet, ticket 2,50 €"),
     "MASSY TGV": ("PARIS (intramuros)", "Paris", "RER B ou C, environ 30 min, ticket 2,50 €"),
     "MASSY PALAISEAU": ("PARIS (intramuros)", "Paris", "RER B ou C, environ 30 min, ticket 2,50 €"),
-    "AEROPORT ROISSY CDG 2 TGV": ("PARIS (intramuros)", "Paris", "RER B, environ 35 min depuis Gare du Nord, billet aéroport ≈ 13 €"),
+    "AEROPORT ROISSY CDG 2 TGV": ("PARIS (intramuros)", "Paris", "RER B, environ 35 min depuis Gare du Nord, billet aéroport ≈ 14 €"),
     "VERSAILLES CHANTIERS": ("PARIS (intramuros)", "Paris", "train ou RER C, environ 20 min depuis Montparnasse, ticket 2,50 €"),
-    "LYON ST EXUPERY TGV.": ("LYON (intramuros)", "Lyon", "tram Rhônexpress depuis Part-Dieu, environ 30 min, ≈ 17 €"),
+    "LYON ST EXUPERY TGV.": ("LYON (intramuros)", "Lyon", "Rhônexpress depuis Lyon Part-Dieu, environ 30 min, ≈ 17 €"),
+    "AVIGNON TGV": ("AVIGNON CENTRE", "Avignon centre", "navette TER, environ 5 min, ≈ 3 €"),
+    "NIMES PONT DU GARD": ("NIMES CENTRE", "Nîmes centre", "navette TER, environ 10 min, ≈ 3 €"),
+    "MONTPELLIER SUD DE FRANCE": ("MONTPELLIER SAINT ROCH", "Montpellier centre", "navette ou tram, environ 20 min, ≈ 1,60 €"),
+    "VALENCE TGV AUVERGNE RHONE ALPES": ("VALENCE VILLE", "Valence centre", "TER, environ 10 min, ≈ 3 €"),
+    "CHAMPAGNE ARDENNE TGV": ("REIMS", "Reims centre", "TER ou tram, environ 10 min, ≈ 2 €"),
+    "BESANCON FRANCHE COMTE TGV": ("BESANCON VIOTTE", "Besançon centre", "TER, environ 15 min, ≈ 3 €"),
 }
 IDF_ACCESS = {k: v[2] for k, v in ANNEX.items() if v[0] == "PARIS (intramuros)"}
 MAIN_STATION_KEY = {"PARIS (intramuros)": "paris", "LYON (intramuros)": "lyon"}
@@ -49,24 +55,26 @@ MAIN_STATION_KEY = {"PARIS (intramuros)": "paris", "LYON (intramuros)": "lyon"}
 # Gares jumelles : on peut arriver à l'une et repartir de l'autre (minutes de changement, marge
 # comprise, et comment faire). Paris intra-muros : voir transfer_min (gares déduites de l'axe).
 _TWIN_PAIRS = [
-    ("PARIS (intramuros)", "MARNE LA VALLEE CHESSY", 60, "RER A, environ 40 min"),
-    ("PARIS (intramuros)", "MASSY TGV", 60, "RER B ou C, environ 35 min"),
-    ("PARIS (intramuros)", "MASSY PALAISEAU", 60, "RER B ou C, environ 35 min"),
-    ("PARIS (intramuros)", "AEROPORT ROISSY CDG 2 TGV", 60, "RER B, environ 35 min"),
-    ("PARIS (intramuros)", "VERSAILLES CHANTIERS", 50, "train ou RER C, environ 25 min"),
+    # (gare, gare, minutes de changement marge comprise, comment faire et prix approximatif du ticket)
+    ("PARIS (intramuros)", "MARNE LA VALLEE CHESSY", 60, "RER A, environ 40 min, ticket 2,50 €"),
+    ("PARIS (intramuros)", "MASSY TGV", 60, "RER B ou C, environ 35 min, ticket 2,50 €"),
+    ("PARIS (intramuros)", "MASSY PALAISEAU", 60, "RER B ou C, environ 35 min, ticket 2,50 €"),
+    ("PARIS (intramuros)", "AEROPORT ROISSY CDG 2 TGV", 60, "RER B, environ 35 min, billet aéroport ≈ 14 €"),
+    ("PARIS (intramuros)", "VERSAILLES CHANTIERS", 50, "train ou RER C, environ 25 min, ticket 2,50 €"),
     ("MASSY TGV", "MASSY PALAISEAU", 20, "à pied, environ 10 min"),
-    ("MASSY TGV", "MARNE LA VALLEE CHESSY", 100, "RER B et RER A, environ 1 h 15"),
-    ("MASSY TGV", "AEROPORT ROISSY CDG 2 TGV", 90, "RER B, environ 1 h 05"),
-    ("MARNE LA VALLEE CHESSY", "AEROPORT ROISSY CDG 2 TGV", 90, "RER A et RER B, environ 1 h 10"),
-    ("LYON (intramuros)", "LYON ST EXUPERY TGV.", 60, "tram Rhônexpress, environ 30 min, ≈ 17 €"),
-    ("AVIGNON TGV", "AVIGNON CENTRE", 25, "navette TER, environ 5 min"),
-    ("MONTPELLIER SAINT ROCH", "MONTPELLIER SUD DE FRANCE", 40, "navette ou tram, environ 20 min"),
-    ("NIMES CENTRE", "NIMES PONT DU GARD", 35, "navette ou TER, environ 15 min"),
-    ("VALENCE VILLE", "VALENCE TGV AUVERGNE RHONE ALPES", 25, "TER, environ 10 min"),
-    ("REIMS", "CHAMPAGNE ARDENNE TGV", 25, "TER ou tram, environ 10 min"),
-    ("BESANCON VIOTTE", "BESANCON FRANCHE COMTE TGV", 30, "TER, environ 15 min"),
-    ("METZ VILLE", "LORRAINE TGV", 50, "navette en car, environ 30 min"),
-    ("NANCY", "LORRAINE TGV", 50, "navette en car, environ 35 min"),
+    ("MASSY TGV", "MARNE LA VALLEE CHESSY", 100, "RER B et RER A, environ 1 h 15, ticket 2,50 €"),
+    ("MASSY TGV", "AEROPORT ROISSY CDG 2 TGV", 90, "RER B, environ 1 h 05, billet aéroport ≈ 14 €"),
+    ("MARNE LA VALLEE CHESSY", "AEROPORT ROISSY CDG 2 TGV", 90, "RER A et RER B, environ 1 h 10, billet aéroport ≈ 14 €"),
+    # Saint-Exupéry : Rhônexpress depuis Part-Dieu seulement (depuis Perrache : tram ou métro avant)
+    ("LYON (intramuros)", "LYON ST EXUPERY TGV.", 70, "Rhônexpress entre Lyon Part-Dieu et Saint-Exupéry, environ 30 min, ≈ 17 €"),
+    ("AVIGNON TGV", "AVIGNON CENTRE", 25, "navette TER, environ 5 min, ≈ 3 €"),
+    ("MONTPELLIER SAINT ROCH", "MONTPELLIER SUD DE FRANCE", 40, "navette ou tram, environ 20 min, ≈ 1,60 €"),
+    ("NIMES CENTRE", "NIMES PONT DU GARD", 35, "navette TER, environ 10 min, ≈ 3 €"),
+    ("VALENCE VILLE", "VALENCE TGV AUVERGNE RHONE ALPES", 25, "TER, environ 10 min, ≈ 3 €"),
+    ("REIMS", "CHAMPAGNE ARDENNE TGV", 25, "TER ou tram, environ 10 min, ≈ 2 €"),
+    ("BESANCON VIOTTE", "BESANCON FRANCHE COMTE TGV", 30, "TER, environ 15 min, ≈ 3 €"),
+    ("METZ VILLE", "LORRAINE TGV", 50, "navette en car, environ 30 min, ≈ 8 €"),
+    ("NANCY", "LORRAINE TGV", 50, "navette en car, environ 35 min, ≈ 8 €"),
 ]
 TWINS = {}
 for _a, _b, _m, _n in _TWIN_PAIRS:
@@ -76,7 +84,7 @@ for _a, _b, _m, _n in _TWIN_PAIRS:
 
 # Paris intra-muros <-> gare TGV d'Île-de-France : tout dépend de la gare parisienne réelle
 # (Montparnasse -> Roissy, c'est 1 h, pas 35 min). Minutes de changement (marge comprise), comment faire.
-_CDG = "billet aéroport ≈ 13 €"
+_CDG = "billet aéroport ≈ 14 €"
 PARIS_ANNEX = {
     ("Paris Nord", "AEROPORT ROISSY CDG 2 TGV"): (50, f"RER B direct, environ 35 min, {_CDG}"),
     ("Paris Est", "AEROPORT ROISSY CDG 2 TGV"): (55, f"RER B et 5 min à pied entre Paris Est et Paris Nord, environ 40 min, {_CDG}"),
@@ -104,6 +112,23 @@ for (_p, _x), _v in list(PARIS_ANNEX.items()):
         PARIS_ANNEX[(_p, "MASSY PALAISEAU")] = _v
 for _p in ("Paris Nord", "Paris Est", "Paris Gare de Lyon", "Paris Bercy"):
     PARIS_ANNEX.setdefault((_p, "VERSAILLES CHANTIERS"), (75, "métro et train via Montparnasse, environ 1 h"))
+
+
+# Changer de gare dans une ville regroupée sous « (intramuros) » : comment faire
+CITY_CHANGE = {
+    frozenset(("Lyon Part-Dieu", "Lyon Perrache")): "tram T1 ou métro, environ 20 min, ticket 2,10 €",
+    frozenset(("Lille Flandres", "Lille Europe")): "à pied, environ 10 min",
+    frozenset(("Paris Gare de Lyon", "Paris Bercy")): "à pied, environ 10 min",
+    frozenset(("Paris Nord", "Paris Est")): "à pied, environ 10 min",
+}
+
+
+def city_change_note(a, b):
+    """Comment passer de la gare a à la gare b d'une même ville (noms réels), ou None si même gare."""
+    if not a or not b or a == b:
+        return None
+    return CITY_CHANGE.get(frozenset((a, b))) or ("métro ou RER, ticket 2,50 €" if a.startswith("Paris")
+                                                   else "transports urbains")
 
 
 def twin_change(a, b, arriving=None, departing=None):
@@ -169,8 +194,22 @@ def _match_city(city, stations):
         return exact
     if len(nq) < 3:                       # « e », « pa »… : trop vague, ferait exploser la recherche
         return [city.upper()]
-    contains = sorted((s for s in stations if nq in normalize(s)), key=len)[:6]
-    return contains or [city.upper()]
+    contains = sorted((s for s in stations if word_start(nq, normalize(s))), key=len)[:6]
+    if contains:
+        return contains
+    # gare hors réseau Max choisie dans la liste (« Lyon Part Dieu », « Paris Montparnasse Hall 1 - 2 ») :
+    # on retombe sur la ville (« lyon », « paris ») pour garder ses trains Max
+    words = nq.split()
+    for n in range(len(words) - 1, 0, -1):
+        sub = " ".join(words[:n])
+        if len(sub) >= 3 and (sub in CITY_ALIASES or any(normalize(s) == sub for s in stations)):
+            return _match_city(sub, stations)
+    return [city.upper()]
+
+
+def word_start(q, name):
+    """q apparaît-il au début d'un mot de name ? (« aix » trouve Aix-les-Bains, pas Morlaix)"""
+    return name.startswith(q) or (" " + q) in name
 
 
 # Paris : le jeu de données regroupe toutes les gares sous « PARIS (intramuros) ». L'axe du train

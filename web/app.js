@@ -652,7 +652,7 @@
     const dirs = state.rt ? ['out', 'ret'] : ['out'];
     const shown = state.days.filter(d => d.dir === state.dir);
     const loaded = state.days.filter(d => !d.loading).length, total = state.days.length;
-    const pool = d => (d.itineraries || []).filter(t => state.showNight || !t._night);
+    const pool = d => (d.itineraries || []).filter(t => (state.showNight || !t._night) && (!state.freeOnly || !t.paid));
     const all = shown.flatMap(pool);
     const freeN = all.filter(t => !t.paid).length;
     const paid = all.filter(t => t.paid).map(t => t.cost_eur);
@@ -670,7 +670,7 @@
       }).join('')}</div>`;
     }
     html += `<div class="res-sum">${loaded < total ? `<span class="ld-inline"><span class="ld-track" aria-hidden="true"><i></i></span>Recherche ${loaded}/${total} jour${total > 1 ? 's' : ''}</span> · ` : ''}<b>${plural(all.length, 'trajet', 'trajets')}</b>`
-      + (all.length ? ` · ${freeN ? `<b>${freeN}</b> à 0 €` : 'aucun à 0 €'}${cheapest != null ? ` · avec TER dès ${nf.format(cheapest)} €` : ''}` : '')
+      + (all.length ? ` · ${freeN ? `<b>${freeN}</b> à 0 €` : 'aucun à 0 €'}${cheapest != null ? ` · ${freeN ? 'sinon' : 'payants'} dès ${nf.format(cheapest)} €` : ''}` : '')
       + `<small>${esc(leg.fromName)} → ${esc(leg.toName)}</small></div>
       <div class="res-tools">${mapBtn()}
         <button class="btn ghost sm" type="button" id="btn-share">${ICON.share}<span>Partager</span></button>
@@ -751,7 +751,9 @@
     const idfLabel = /^(Depuis|Vers) Paris /.test(idf || '') ? 'Gare d\'Île-de-France' : 'Gare voisine';
     const est = it.legs.some(l => l.estimated_schedule);
     const margin = minMargin(it);
-    const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
+    const ter = it.legs.some(l => !l.free);
+    const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (ter ? '<em class="b ter">+ TER</em>' : '')
+      + (it.transfer_cost ? `<em class="b ter" title="Rhônexpress, billet aéroport ou navette pour changer de gare ou rejoindre la gare : non compris dans le Max">Transport payant ≈ ${nf.format(it.transfer_cost)} €</em>` : '')
       + (idf ? `<em class="b via">${idfLabel}</em>` : '')
 
       + (est ? '<em class="b est">Horaire TER estimé</em>' : '')
@@ -800,7 +802,7 @@
       let body;
       if (l.free) {
         body = `<div class="s-title"><b>${esc(l.mode)} ${esc(l.train)}</b><em class="b free">Max · 0 €</em></div>
-          <div class="s-sub">${fmtDur(dur)} · 1 réservation Max · place vue ${esc(freshShort())}, à confirmer</div>`;
+          <div class="s-sub">${fmtDur(dur)} · 1 réservation Max</div>`;
       } else {
         const p = l.price || {};
         // étapes du TER / car, avec les passages à pied entre arrêts (gare → gare routière…)
@@ -1456,13 +1458,6 @@
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (theme === 'auto') mapTheme(); });
     let rt;
     addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => refreshView(), 200); });
-  }
-
-  function freshShort() {
-    const d = state.meta?.updates?.last ? new Date(state.meta.updates.last) : null;
-    if (!d || isNaN(d)) return 'ce matin';
-    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
-    return isoOf(d) === todayISO() ? `à ${hm}` : `le ${fmtShort(isoOf(d))}`;
   }
 
   // Les places Max ne sont publiées qu'une fois par jour : on dit quand elles ont été vues

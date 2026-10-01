@@ -15,6 +15,7 @@ import csv
 import io
 import math
 import os
+import re
 import threading
 import time
 import unicodedata
@@ -55,6 +56,9 @@ def _fold(s):
     s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
     s = " " + s.replace("-", " ").replace("'", " ") + " "
     return " ".join(s.replace(" sainte ", " ste ").replace(" saint ", " st ").split())
+
+
+fold = _fold                # nom replié, pour comparer avec les noms saisis
 
 
 def _mins(hms):
@@ -105,6 +109,7 @@ class _Builder:
     def __init__(self):
         self.areas, self.by_key = [], {}
         self.trips = []           # (mode, réseau, tarif forfaitaire ?, arrêts compacts, clé service)
+        self.trains = {}          # n° de TGV / Intercités -> [(clé service, arrêts compacts (gare, arr., dép.))]
         self.services = {}        # (flux, service) -> [masque jours, début, fin, ajouts, retraits]
         today = Date.today()
         self.w0, self.w1 = _ymd(today - timedelta(days=2)), _ymd(today + timedelta(days=WINDOW_DAYS))
@@ -190,13 +195,18 @@ def _load_sncf(b):
             if kind in ("TGV INOUI", "INTERCITES", "OUIGO"):
                 b.areas[a]["major"] = True
     _calendar(z, "sncf", b)
-    trip_service = {t["trip_id"]: t["service_id"] for t in _rows(z, "trips.txt")}
-    trips, bad = {}, set()
+    trip_info = {t["trip_id"]: (t["service_id"], t.get("trip_headsign", "")) for t in _rows(z, "trips.txt")}
+    trip_service = {k: v[0] for k, v in trip_info.items()}
+    trips, bad, long_trains = {}, set(), {}
     for st in _rows(z, "stop_times.txt"):
         tid, p = st["trip_id"], st["stop_id"]
         a = point_area.get(p)
         if a is None:
             continue
+        if point_mode.get(p) in ("TGV INOUI", "INTERCITES"):   # trains Max : leurs vraies gares
+            t_arr, t_dep = _times(st)
+            if t_arr is not None:
+                long_trains.setdefault(tid, []).append((int(st["stop_sequence"]), a, t_arr, t_dep))
         mode = SNCF_MODES.get(point_mode.get(p))
         if mode is None:
             bad.add(tid)              # un seul arrêt TGV/OUIGO… suffit à écarter la circulation
@@ -206,6 +216,14 @@ def _load_sncf(b):
     for tid, (mode, stops) in trips.items():
         if tid not in bad:
             b.add_trip(mode, None, False, stops, ("sncf", trip_service.get(tid)))
+    for tid, stops in long_trains.items():
+        service, number = trip_info.get(tid, (None, ""))
+        skey = ("sncf", service)
+        if number and b.in_window(skey):
+            arr = array("i")
+            for _, a, t_arr, t_dep in sorted(stops):
+                arr.extend((a, t_arr, t_dep))
+            b.trains.setdefault(number, []).append((skey, arr))
 
 
 def _route_kind(rt):
@@ -307,7 +325,8 @@ def load():
                 print(f"    GTFS {fid} illisible : {e}", flush=True)
     sncf_dates = sorted(d for (f, _), s in b.services.items() if f == "sncf" for d in s[3] if d <= b.w1)
     cell_of = array("i", (_cell(a["lat"], a["lon"]) for a in b.areas))
-    new = {"areas": b.areas, "by_key": b.by_key, "trips": b.trips, "services": b.services, "cell_of": cell_of,
+    new = {"areas": b.areas, "by_key": b.by_key, "trips": b.trips, "trains": b.trains,
+           "services": b.services, "cell_of": cell_of,
            "foot": _footpaths(b.areas), "feeds": loaded,
            "first": sncf_dates[0] if sncf_dates else None, "last": sncf_dates[-1] if sncf_dates else None,
            "names": [(_fold(a["name"]), i) for i, a in enumerate(b.areas)], "built": _ymd(Date.today()),
@@ -346,6 +365,37 @@ def _active(services, d):
     wd = 1 << Date(d // 10000, d // 100 % 100, d % 100).weekday()
     return {k for k, (mask, start, end, added, removed) in services.items()
             if d in added or (mask & wd and start <= d <= end and d not in removed)}
+
+
+_ACTIVE = {}              # jour -> services qui circulent (pour retrouver les vraies gares des TGV)
+
+
+def train_stop(train, ymd, minute, when="dep"):
+    """Vraie gare où le train n° `train` part (when="dep") ou arrive (when="arr") à `minute` (minutes
+    depuis minuit du jour ymd, peut dépasser 1440), d'après les horaires SNCF. L'open data Max ne dit
+    que « LYON (intramuros) » : ici on sait si c'est Part-Dieu ou Perrache. {name, lat, lon} ou None."""
+    data = _data
+    runs = data.get("trains", {}).get(str(train)) if data else None
+    if not runs:
+        return None
+    day = Date.fromisoformat(ymd)
+    for back in (0, 1):                       # parti la veille (horaires après minuit : > 1440)
+        d = _ymd(day - timedelta(days=back))
+        key = (id(data), d)
+        active = _ACTIVE.get(key)
+        if active is None:
+            if len(_ACTIVE) > 64:
+                _ACTIVE.clear()
+            active = _ACTIVE[key] = _active(data["services"], d)
+        t = minute + 1440 * back
+        for skey, arr in runs:
+            if skey not in active:
+                continue
+            for k in range(0, len(arr), 3):
+                if arr[k + (2 if when == "dep" else 1)] == t:
+                    a = data["areas"][arr[k]]
+                    return {"name": a["name"], "lat": a["lat"], "lon": a["lon"]}
+    return None
 
 
 def _cell(lat, lon):
@@ -641,7 +691,10 @@ def places(q, limit=8):
         return []
     areas = _data["areas"]
     hits = [i for name, i in _data["names"] if fq in name]
-    hits.sort(key=lambda i: (not areas[i]["rail"], not _fold(areas[i]["name"]).startswith(fq),
+    word = re.compile(r"(^| )" + re.escape(fq) + r"( |$)")   # « Albi » : Albi Ville avant Albias
+    hits.sort(key=lambda i: (_fold(areas[i]["name"]) != fq,          # « Aix-en-Provence » avant Aix TGV
+                             not areas[i]["rail"], not word.search(_fold(areas[i]["name"])),
+                             not _fold(areas[i]["name"]).startswith(fq),
                              not areas[i]["major"], not areas[i]["sncf"], len(areas[i]["name"])))
     out, seen = [], set()
     for i in hits:
@@ -650,7 +703,7 @@ def places(q, limit=8):
         if k in seen:                 # un même nom d'arrêt dans plusieurs réseaux : une seule fois
             continue
         seen.add(k)
-        out.append({"id": _public_id(a), "name": a["name"], "lat": a["lat"], "lon": a["lon"]})
+        out.append({"id": _public_id(a), "name": a["name"], "lat": a["lat"], "lon": a["lon"], "rail": a["rail"]})
         if len(out) >= limit:
             break
     return out
