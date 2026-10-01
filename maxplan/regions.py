@@ -10,7 +10,9 @@ import math
 import os
 import threading
 
-PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "geo", "regions.json")
+from maxplan import config
+
+PATH = os.path.join(config.ROOT, "web", "geo", "regions.json")
 
 # code INSEE -> (nom, réseau TER régional)
 REGIONS = {

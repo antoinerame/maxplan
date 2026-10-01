@@ -1,8 +1,11 @@
-# Configuration locale du dashboard TGV Max.
+# Réglages de MaxPlan (surchargés par les variables d'environnement, voir .env.example).
 import os
 
+# Racine du dépôt (où se trouvent .env et web/)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-def _load_dotenv(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")):
+
+def _load_dotenv(path=os.path.join(ROOT, ".env")):
     """Lit le .env local (lancement hors Docker) sans écraser les variables déjà définies."""
     try:
         with open(path, encoding="utf-8") as f:
@@ -23,7 +26,7 @@ HOST = os.environ.get("MAXFINDER_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MAXFINDER_PORT", os.environ.get("PORT", "8765")))
 
 # Répertoire de données persistantes (cache de géocodage). En conteneur : /data (volume).
-DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.environ.get("DATA_DIR", ROOT)
 
 # Réglages du moteur de recherche.
 MIN_CONNECTION_MIN = 15          # temps de correspondance mini (gare simple)

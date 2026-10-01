@@ -14,7 +14,7 @@ import time
 import urllib.parse
 import urllib.request
 
-import config
+from maxplan import config
 
 BASE = "https://api.sncf.com/v1"
 CACHE_FILE = os.path.join(config.DATA_DIR, "geo_cache_v2.json")   # v2 : choix de la gare par ville
@@ -308,7 +308,7 @@ class Navitia:
             c = (obj or {}).get("coord")
             return (float(c["lat"]), float(c["lon"])) if c else None
 
-        from tgvmax_core import haversine_km
+        from maxplan.base import haversine_km
         modes, networks, sections, first_dep, last_arr = [], [], [], None, None
         for s in j.get("sections", []):
             if s.get("type") != "public_transport":

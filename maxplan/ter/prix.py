@@ -11,7 +11,7 @@ Le prix réel reste celui affiché par SNCF Connect.
 
 import math
 
-import regions
+from maxplan import regions
 
 MIN_FARE = 2.0              # prix plancher d'un trajet
 REGIONAL_COACH_FARE = 3.0   # car régional : la plupart des réseaux ont un tarif unique de 2 à 4 €

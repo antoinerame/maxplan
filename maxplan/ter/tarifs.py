@@ -13,7 +13,7 @@ import time
 import urllib.parse
 import urllib.request
 
-import tgvmax_core as core
+from maxplan.base import normalize
 
 BASE = "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/"
 TTL = 24 * 3600
@@ -41,13 +41,13 @@ def _rows():
                              "gare_origine,gare_destination,profil_tarifaire,prix_minimum,prix_maximum"):
                 p = PROFILES.get(x.get("profil_tarifaire"))
                 if p and x.get("prix_minimum") is not None:
-                    rows.append((core.normalize(x["gare_origine"]), core.normalize(x["gare_destination"]), p,
+                    rows.append((normalize(x["gare_origine"]), normalize(x["gare_destination"]), p,
                                  float(x["prix_minimum"]), float(x["prix_maximum"])))
             for x in _export("tarifs-intercites", "classe='2'",
                              "origine,destination,profil_tarifaire,prix_min,prix_max"):
                 p = PROFILES.get(x.get("profil_tarifaire"))
                 if p and x.get("prix_min") is not None:
-                    rows.append((core.normalize(x["origine"]), core.normalize(x["destination"]), p,
+                    rows.append((normalize(x["origine"]), normalize(x["destination"]), p,
                                  float(x["prix_min"]), float(x["prix_max"])))
         except Exception:
             if _cache["rows"]:
@@ -62,7 +62,7 @@ def _matches(gare, labels):
     toutes les gares parisiennes ; sinon comparaison du nom normalisé (tirets et « saint » gommés)."""
     g = gare.replace("saint ", "st ").replace("-", " ")
     for lab in labels:
-        n = core.normalize(lab).replace("saint ", "st ")
+        n = normalize(lab).replace("saint ", "st ")
         if "(intramuros)" in lab:
             if g.startswith(n + " ") or g == n:
                 return True

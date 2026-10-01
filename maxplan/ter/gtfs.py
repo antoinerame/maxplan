@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Horaires en local (GTFS open data) : calcul des trajets TER et cars régionaux sans l'API SNCF.
 
-Sources (voir feeds.py) : l'export GTFS de la SNCF (TER, cars TER, Intercités, ~6 mois) et une
+Sources (voir reseaux.py) : l'export GTFS de la SNCF (TER, cars TER, Intercités, ~6 mois) et une
 quarantaine de réseaux régionaux de cars publiés sur transport.data.gouv.fr (ZOU!, liO, Aléop…).
 Tout est chargé en mémoire sous une forme compacte, puis les trajets se calculent avec l'algorithme
 « Connection Scan » (CSA) : on parcourt les départs de la journée dans l'ordre en gardant l'arrivée la
@@ -24,10 +24,9 @@ import zlib
 from array import array
 from datetime import date as Date, timedelta
 
-import config
-import feeds
-import regions
-from tgvmax_core import haversine_km
+from maxplan import config, regions
+from maxplan.base import haversine_km
+from maxplan.ter import reseaux
 
 DIR = os.path.join(config.DATA_DIR, "gtfs")
 KEEP = ("agency.txt", "stops.txt", "routes.txt", "trips.txt", "stop_times.txt", "calendar.txt", "calendar_dates.txt")
@@ -299,7 +298,7 @@ def load():
     if os.path.exists(_path("sncf")):
         _load_sncf(b)
         loaded.append("sncf")
-    for fid, (_, brand) in feeds.REGIONAL.items():
+    for fid, (_, brand) in reseaux.REGIONAL.items():
         if os.path.exists(_path(fid)):
             try:
                 _load_regional(fid, brand, b)
@@ -667,8 +666,8 @@ def refresh_loop():
             time.sleep(1800)
             continue
         changed = not _data
-        for fid, (url, _), max_age in [("sncf", feeds.SNCF, 20 * 3600)] + \
-                [(k, v, 7 * 86400) for k, v in feeds.REGIONAL.items()]:
+        for fid, (url, _), max_age in [("sncf", reseaux.SNCF, 20 * 3600)] + \
+                [(k, v, 7 * 86400) for k, v in reseaux.REGIONAL.items()]:
             try:
                 changed |= download(fid, url, max_age)
             except Exception as e:

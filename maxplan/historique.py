@@ -17,7 +17,7 @@ import threading
 import time
 from datetime import date as Date
 
-import config
+from maxplan import config
 
 DB_FILE = os.path.join(config.DATA_DIR, "history.sqlite")
 _lock = threading.Lock()
