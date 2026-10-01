@@ -241,8 +241,9 @@ def drop_dominated(itins):
     parti 10 min plus tôt. Une nuit en gare ne se justifie pas pour quelques centimes d'économie."""
     def ends(it):
         a, b = it["legs"][0], it["legs"][-1]
-        return (it["_dep"] - _access_min(a.get("from") or a.get("o")),
-                it["_arr"] + _access_min(b.get("to") or b.get("d")))
+        pre = it["_pre"] if "_pre" in it else _access_min(a.get("from") or a.get("o"))
+        post = it["_post"] if "_post" in it else _access_min(b.get("to") or b.get("d"))
+        return it["_dep"] - pre, it["_arr"] + post
 
     span = [ends(it) for it in itins]
 
@@ -373,8 +374,8 @@ def search_one_day(src, dst, date, opts):
         return {"itineraries": [], "notice": SENIOR_NOTICE}
     edges = edges_for(date)
     stations = {e["o"] for e in edges} | {e["d"] for e in edges}
-    origins = core.resolve_city(src, stations)
-    targets = core.resolve_city(dst, stations)
+    origins, o_near = core.resolve_area(src, stations)     # + gares voisines (Lorraine TGV pour Metz…)
+    targets, t_near = core.resolve_area(dst, stations)
     win = dict(min_dep=opts["min_dep"], max_dep=opts["max_dep"])
 
     # 1) trajets 100 % Max
@@ -531,21 +532,32 @@ def search_one_day(src, dst, date, opts):
             it["detour"] = True
         kept.append(it)
     out = kept
-    # depuis / vers une gare TGV d'Île-de-France quand on a cherché « Paris » : comment y aller
+    # depuis / vers une gare annexe (Massy quand on a cherché « Paris ») ou voisine (Lorraine TGV pour
+    # Metz) : comment y aller, et ce temps compte pour comparer les trajets entre eux
+    def access(station, ends, near):
+        a = core.ANNEX.get(station)
+        if a and a[0] in ends and a[0] not in near:
+            return a[1], a[2], _access_min(station)
+        if station in near:
+            s0, mins, note = near[station]
+            return display_name(s0, navitia._cache.get(s0)), note, core.note_minutes(note, mins)
+        return None
+
     for it in out:
         first, last = it["legs"][0], it["legs"][-1]
-        a = core.ANNEX.get(first["from"])
-        if a and a[0] in origins:
-            first["access_from"] = f"Depuis {a[1]} : {a[2]}"
-        a = core.ANNEX.get(last["to"])
-        if a and a[0] in targets:
-            last["access_to"] = f"Vers {a[1]} : {a[2]}"
+        a = access(first["from"], origins, o_near)
+        if a:
+            first["access_from"], it["_pre"] = f"Depuis {a[0]} : {a[1]}", a[2]
+        a = access(last["to"], targets, t_near)
+        if a:
+            last["access_to"], it["_post"] = f"Vers {a[0]} : {a[1]}", a[2]
     day = drop_dominated([it for it in out if not it["nocturnal"]])
     full = drop_dominated(out)
     night = [it for it in full if it["nocturnal"]]
     shown = full if opts["nights"] else day
     for it in out:
-        it.pop("_dep", None); it.pop("_arr", None)
+        for k in ("_dep", "_arr", "_pre", "_post"):
+            it.pop(k, None)
     def unique(items):
         """Même départ, même arrivée, même prix : une seule ligne (la plus simple : moins de
         changements, puis le moins de détour). Évite trois variantes du même trajet à l'écran."""
@@ -710,6 +722,9 @@ def do_explore(qs):
             "nconn": nlegs - 1, "dep": core.min_to_hhmm(path[0]["dep"]),
             "arr": core.min_to_hhmm(path[-1]["arr"]), "arr_day": path[-1]["arr"] // 1440,
             "via": [display_name(e["d"], geo.get(e["d"])) for e in path[:-1]],
+            # parti d'une autre gare que la principale (Marne-la-Vallée quand on explore depuis Paris)
+            "from_name": (display_name(path[0]["o"], geo.get(path[0]["o"]))
+                          if origins and path[0]["o"] != origins[0] else None),
         })
     dests.sort(key=lambda x: (x["nconn"], core.normalize(x["name"])))
     res = {

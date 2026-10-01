@@ -48,6 +48,7 @@
 </head>
 <body>
 <div class="app" id="app" data-view="home" data-map="off">
+  <div class="loadbar" aria-hidden="true"></div>
   <header class="bar">
     <a class="brand" href="/" aria-label="MaxPlan, accueil"><span class="brand-name">Max<em>Plan</em></span></a>
     <span class="bar-status" id="data-status">Chargement des données SNCF…</span>
@@ -213,7 +214,7 @@
           <article class="info-card live">
             <h3>En ce moment sur le réseau</h3>
             <p class="info-sub">Part des trajets TGV INOUI et Intercités ouverts au Max, jour par jour, dans toute la France.</p>
-            <div class="net-chart" id="net-chart" aria-label="Part des trajets ouverts au Max par jour"><p class="cal-msg">Chargement…</p></div>
+            <div class="net-chart" id="net-chart" aria-label="Part des trajets ouverts au Max par jour"><div class="loading" role="status"><span class="ld-track" aria-hidden="true"><i></i></span><span>Chargement…</span></div></div>
             <div class="net-legend"><span><i></i>Jour ordinaire</span><span><i class="we"></i>Week-end</span><span><i class="hol"></i>Vacances scolaires</span></div>
             <div class="net-notes" id="net-notes"></div>
           </article>

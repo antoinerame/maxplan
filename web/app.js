@@ -63,15 +63,29 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, 3800);
   }
 
+  // requêtes en cours : barre animée en haut de page (après 150 ms, pour ne pas clignoter)
+  let inflight = 0, busyTimer;
+  function busy(d) {
+    inflight = Math.max(0, inflight + d);
+    clearTimeout(busyTimer);
+    if (inflight) busyTimer = setTimeout(() => document.documentElement.classList.add('busy'), 150);
+    else document.documentElement.classList.remove('busy');
+  }
+  // chargement plus long : un petit train qui roule sur sa voie, avec un message
+  const loadingHTML = text => `<div class="loading" role="status"><span class="ld-track" aria-hidden="true"><i></i></span><span>${esc(text)}</span></div>`;
+
   async function api(path, params = {}) {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
-    let res;
-    try { res = await fetch(`${path}?${qs}`, { headers: { Accept: 'application/json' } }); }
-    catch { throw new Error('Connexion au serveur impossible, vérifie ta connexion internet.'); }
-    let data = null;
-    try { data = await res.json(); } catch { /* réponse non JSON */ }
-    if (!res.ok) throw new Error(data?.error || `Le serveur a répondu ${res.status}.`);
-    return data;
+    busy(1);
+    try {
+      let res;
+      try { res = await fetch(`${path}?${qs}`, { headers: { Accept: 'application/json' } }); }
+      catch { throw new Error('Connexion au serveur impossible, vérifie ta connexion internet.'); }
+      let data = null;
+      try { data = await res.json(); } catch { /* réponse non JSON */ }
+      if (!res.ok) throw new Error(data?.error || `Le serveur a répondu ${res.status}.`);
+      return data;
+    } finally { busy(-1); }
   }
 
   /* ================================================================== état */
@@ -576,8 +590,10 @@
         renderResults();
       }
     };
+    $('#btn-search').classList.add('is-busy');
     await Promise.all([worker(), worker(), worker()]);
     if (token !== state.searchSeq) return;
+    $('#btn-search').classList.remove('is-busy');
     // sélection automatique du premier trajet de chaque sens pour que la carte montre tout de suite quelque chose
     for (const dir of state.rt ? ['out', 'ret'] : ['out']) {
       const list = visibleTrips(dir).filter(x => !isExtra(x.it));
@@ -653,7 +669,7 @@
           <b>${dir === 'out' ? 'Aller' : 'Retour'} · ${plural(n, 'trajet', 'trajets')}</b><small>${esc(l.fromName)} → ${esc(l.toName)}</small></button>`;
       }).join('')}</div>`;
     }
-    html += `<div class="res-sum">${loaded < total ? `Recherche… ${loaded}/${total} jours · ` : ''}<b>${plural(all.length, 'trajet', 'trajets')}</b>`
+    html += `<div class="res-sum">${loaded < total ? `<span class="ld-inline"><span class="ld-track" aria-hidden="true"><i></i></span>Recherche ${loaded}/${total} jour${total > 1 ? 's' : ''}</span> · ` : ''}<b>${plural(all.length, 'trajet', 'trajets')}</b>`
       + (all.length ? ` · ${freeN ? `<b>${freeN}</b> à 0 €` : 'aucun à 0 €'}${cheapest != null ? ` · avec TER dès ${nf.format(cheapest)} €` : ''}` : '')
       + `<small>${esc(leg.fromName)} → ${esc(leg.toName)}</small></div>
       <div class="res-tools">${mapBtn()}
@@ -685,7 +701,7 @@
       nightTotal += nights;
       extraTotal += all.length - main.length;
       if (!openAll) hiddenExtra += all.length - main.length;
-      html += `<section class="day-block"><h3 class="day"><span>${fmtDay(d.date)}</span><small>${d.loading ? 'recherche…' : plural(list.length, 'trajet', 'trajets') + (all.length > list.length ? ` (+ ${all.length - list.length} plus long${all.length - list.length > 1 ? 's' : ''})` : '')}</small></h3>`;
+      html += `<section class="day-block"><h3 class="day"><span>${fmtDay(d.date)}</span><small>${d.loading ? '<span class="dots">recherche</span>' : plural(list.length, 'trajet', 'trajets') + (all.length > list.length ? ` (+ ${all.length - list.length} plus long${all.length - list.length > 1 ? 's' : ''})` : '')}</small></h3>`;
       if (d.loading) { html += skeleton(2) + '</section>'; continue; }
       if (d.error) { html += `<p class="notice err">${esc(d.error)}</p></section>`; continue; }
       if (d.notice) html += `<p class="notice">${esc(d.notice)}</p>`;
@@ -732,7 +748,7 @@
     if (via.length) meta.push(`via ${via.join(', ')}`);
     const ic = it.legs.some(l => l.free && l.mode === 'Intercités');
     const idf = it.legs[0].access_from || it.legs[it.legs.length - 1].access_to;
-    const idfLabel = /^(Depuis|Vers) Paris /.test(idf || '') ? 'Gare d\'Île-de-France' : 'Gare hors centre';
+    const idfLabel = /^(Depuis|Vers) Paris /.test(idf || '') ? 'Gare d\'Île-de-France' : 'Gare voisine';
     const est = it.legs.some(l => l.estimated_schedule);
     const margin = minMargin(it);
     const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
@@ -776,7 +792,7 @@
         const move = !samePlace(prev.to_name, l.from_name)
           ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${l.change_note ? ` (${esc(l.change_note)})` : /^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? ' (métro ou RER)' : ''}</em>` : '';
         const at = samePlace(prev.to_name, l.from_name) ? '' : ` à ${esc(prev.to_name)}`;
-        sub = `<small>arrivée ${esc(prev.arr)}${at} · correspondance ${fmtDur(Math.max(0, wait))}, <span class="${wait < 30 ? 'short' : ''}">non garantie${wait < 30 ? ' (marge courte)' : ''}</span></small>${move}`;
+        sub = `<small>arrivée ${esc(prev.arr)}${at} · correspondance ${fmtDur(Math.max(0, wait))}${wait < 30 ? ', <span class="short">marge courte</span>' : ''}</small>${move}`;
       }
       const access = i === 0 && l.access_from ? `<em class="move">${ICON.walk}${esc(l.access_from)}</em>` : '';
       h += `<li class="stop${i === 0 ? ' first' : ''}"><span class="s-time">${esc(l.dep)}${l.dep_day ? `<sup>+${l.dep_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(l.from_name)}${sub}${access}</span></li>`;
@@ -842,7 +858,9 @@
     if (!from || !to) { box.innerHTML = `<p class="cal-msg">Indique d'abord un départ et une arrivée : le calendrier montre les jours avec des trains à 0 €.</p>`; return; }
     const key = `${from}|${to}|${opts.nights}|${profile.sub}`;
     if (state.cal?.key !== key) {
-      box.innerHTML = `<p class="cal-msg">Recherche des trains à 0 € sur les 30 prochains jours…</p>`;
+      // calendrier « fantôme » qui scintille en vague pendant le calcul
+      box.innerHTML = `<div class="cal-head">${loadingHTML('Recherche des trains à 0 € sur les 30 prochains jours…')}</div>
+        <div class="cal-grid" aria-hidden="true">${WD.map(w => `<span class="cal-wd">${w}</span>`).join('')}${Array.from({ length: 35 }, (_, i) => `<span class="cal-day ghost" style="--i:${i % 7 + Math.floor(i / 7)}"><b>&nbsp;</b><span>&nbsp;</span></span>`).join('')}</div>`;
       try {
         const r = await api('/api/calendar', { from, to, nights: opts.nights ? 1 : 0, ...profileParams() });
         state.cal = { key, r };
@@ -873,7 +891,7 @@
     }
     box.innerHTML = `<div class="cal-head"><b>Trains à 0 € par jour</b><small>100 % Max, sans TER · touche un jour pour voir les trains</small></div>
       <div class="cal-grid">${WD.map(w => `<span class="cal-wd">${w}</span>`).join('')}${cells.join('')}</div>
-      <div class="trends" id="trends"><p class="cal-msg">Chargement des tendances…</p></div>`;
+      <div class="trends" id="trends">${loadingHTML('Chargement des tendances…')}</div>`;
     loadTrends();
   }
 
@@ -916,7 +934,7 @@
   // idées vérifiées par le serveur : seulement des liaisons qui ont vraiment des trains à 0 € demain
   let IDEAS = [];
   async function renderIdeas(load = false) {
-    let list = '<p class="cal-msg">Recherche des trains à 0 € disponibles demain…</p>';
+    let list = loadingHTML('Recherche des trains à 0 € disponibles demain…');
     if (load) {
       try {
         const lastFrom = $('#s-from').dataset.label || $('#s-from').value;
@@ -943,6 +961,7 @@
     const box = $('#explore-results');
     box.innerHTML = `<div class="trips">${skeleton(4)}</div>`;
     $('#btn-explore').disabled = true;
+    $('#btn-explore').classList.add('is-busy');
     document.activeElement?.blur();
     try {
       state.explore = await api('/api/explore', { from, date, maxconn: opts.e_maxconn, ...profileParams() });
@@ -952,6 +971,7 @@
       if (isMobile()) scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) { box.innerHTML = `<p class="notice err">${esc(e.message)}</p>`; }
     $('#btn-explore').disabled = false;
+    $('#btn-explore').classList.remove('is-busy');
   }
 
   function renderExplore() {
@@ -974,7 +994,7 @@
     const list = data.destinations.filter(d => !f || d.name.toLowerCase().includes(f));
     $('#ex-list').innerHTML = list.length ? list.map(d => `<li class="trip dest"><button class="trip-hit" type="button" data-dest="${esc(d.label)}">
         <span class="t-times"><b>${esc(d.dep)}</b><span>${esc(d.arr)}${d.arr_day ? `<sup>+${d.arr_day}</sup>` : ''}</span></span>
-        <span class="t-main"><span class="t-route">${esc(d.name)}</span>${d.nconn ? `<span class="t-meta">via ${esc(d.via.join(', '))}</span>` : ''}</span>
+        <span class="t-main"><span class="t-route">${esc(d.name)}</span>${d.nconn || d.from_name ? `<span class="t-meta">${[d.from_name ? `depuis ${d.from_name}` : '', d.nconn ? `via ${d.via.join(', ')}` : ''].filter(Boolean).map(esc).join(' · ')}</span>` : ''}</span>
         <em class="b ${d.nconn ? 'via' : 'free'}">${d.nconn ? plural(d.nconn, 'corresp.', 'corresp.') : 'Direct'}</em>
       </button></li>`).join('') : '<li class="none">Aucune gare ne correspond.</li>';
   }
@@ -1074,7 +1094,7 @@
     const head = t => `<div class="fav-od"><b>${esc(t.from.name)}</b><i>⇄</i><b>${esc(t.to.name)}</b>
         <button class="fav-del" type="button" data-v-del="${vTrips.indexOf(t)}" aria-label="Retirer le trajet ${esc(t.from.name)} ⇄ ${esc(t.to.name)}">${ICON.trash}</button></div>
       <p class="v-sub">${plural(t.n, 'aller-retour', 'allers-retours')} par mois${DAYS_TXT[t.days]}</p>`;
-    box.innerHTML = `<div class="value-list">${vTrips.map(t => `<article class="fav vcard">${head(t)}<p class="cal-msg">Calcul en cours…</p></article>`).join('')}</div>`;
+    box.innerHTML = `<div class="value-list">${vTrips.map(t => `<article class="fav vcard">${head(t)}${loadingHTML('Calcul sur les 30 prochains jours…')}</article>`).join('')}</div>`;
     const res = await Promise.all(vTrips.map(loadValue));
 
     const maxPrice = SUB_PRICE[profile.sub] || SUB_PRICE.jeune;

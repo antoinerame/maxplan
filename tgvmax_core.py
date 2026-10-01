@@ -4,6 +4,7 @@
 import bisect
 import json
 import math
+import re
 import threading
 import time
 import unicodedata
@@ -192,7 +193,37 @@ def normalize(s):
     return s.lower().replace("-", " ").replace("(intramuros)", "").replace(".", "").strip()
 
 
+# Gare jumelle ajoutée d'office à une recherche si on la rejoint en moins d'une heure (marge comprise) :
+# chercher « Metz » propose aussi Lorraine TGV, « Avignon TGV » aussi Avignon Centre, « Massy » aussi Paris.
+NEARBY_MAX_MIN = 60
+
+
+def resolve_area(city, stations):
+    """(gares, voisines) : les gares de la ville cherchée, puis leurs gares jumelles proches.
+    voisines : gare ajoutée -> (gare cherchée la plus proche, minutes, comment y aller)."""
+    base = _match_city(city, stations)
+    extra = {}
+    for s in base:
+        for t, mins, note in TWINS.get(s, ()):
+            if mins <= NEARBY_MAX_MIN and t not in base and t not in extra and (not stations or t in stations):
+                extra[t] = (s, mins, note)
+    return base + list(extra), extra
+
+
 def resolve_city(city, stations):
+    """Libellés de gare du dataset pour `city` : la ville (alias, exact, ou contient) et ses gares voisines."""
+    return resolve_area(city, stations)[0]
+
+
+def note_minutes(note, default):
+    """« RER B direct, environ 40 min » -> 40 (temps de trajet annoncé), sinon default."""
+    m = re.search(r"environ (\d+) h(?: (\d+))?|environ (\d+) min", note or "")
+    if not m:
+        return default
+    return int(m.group(3)) if m.group(3) else int(m.group(1)) * 60 + int(m.group(2) or 0)
+
+
+def _match_city(city, stations):
     """Libellés de gare du dataset correspondant à `city` (alias, exact, ou contient)."""
     key = city.strip().lower()
     if city.strip() in MAIN_STATION_KEY:          # gare choisie dans la liste : la ville et ses gares annexes
@@ -201,7 +232,7 @@ def resolve_city(city, stations):
         hit = [s for s in CITY_ALIASES[key] if s in stations]
         return hit or CITY_ALIASES[key]
     nq = normalize(key)
-    exact = [s for s in stations if normalize(s) == nq]
+    exact = sorted(s for s in stations if normalize(s) == nq)
     if exact:
         return exact
     if len(nq) < 3:                       # « e », « pa »… : trop vague, ferait exploser la recherche
@@ -424,7 +455,7 @@ def search(edges, origins, targets, max_conn=3, max_results=40, min_dep=0, max_d
 def reachable(edges, origins, max_conn=1, min_dep=0, max_dep=1440):
     """Gares atteignables en Max depuis origins, avec le nb mini de trains et un exemple."""
     idx = _index(edges)
-    origins = set(origins)
+    origins_list = list(origins)
     best = {}
 
     def dfs(station, arrived_at, path, visited):
@@ -443,7 +474,7 @@ def reachable(edges, origins, max_conn=1, min_dep=0, max_dep=1440):
             if len(newpath) <= max_conn:
                 dfs(e["d"], e["arr"], newpath, visited | {e["d"], e["o"]})
 
-    for o in sorted(origins):             # ordre stable (résultats identiques d'un lancement à l'autre)
+    for o in dict.fromkeys(origins_list):  # gare principale d'abord : l'exemple de trajet part d'elle
         dfs(o, 0, [], {o})
     return best
 
