@@ -58,7 +58,29 @@ def check_date(d):
     dates = donnees.dataset_dates()
     if dates and not (dates[0] <= d <= dates[-1]):
         raise BadRequest(f"Pas de données Max pour le {d} : elles vont du {dates[0]} au {dates[-1]}.")
+    if d < today():                      # après minuit, la veille reste dans l'open data jusqu'à sa mise à jour
+        raise BadRequest("Cette date est passée : choisis aujourd'hui ou un jour suivant.")
     return d
+
+
+def today():
+    """Date du jour à Paris (AAAA-MM-JJ)."""
+    return datetime.now(PARIS_TZ).strftime("%Y-%m-%d")
+
+
+def coming_dates():
+    """Jours de l'open data à partir d'aujourd'hui (calendrier, « Rentable ? »)."""
+    t = today()
+    return [d for d in donnees.dataset_dates() if d >= t]
+
+
+def check_time(s, what):
+    """Heure HH:MM valide, ou None si vide."""
+    if not s:
+        return None
+    if not TIME_RE.match(s) or int(s.split(":")[0]) > 23 or int(s.split(":")[1]) > 59:
+        raise BadRequest(f"Heure {what} invalide (format attendu HH:MM).")
+    return int(s.split(":")[0]) * 60 + int(s.split(":")[1])
 
 
 def _int(qs, name, default, lo, hi):

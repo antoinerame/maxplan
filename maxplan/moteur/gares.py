@@ -41,6 +41,12 @@ ANNEX = {
     "AEROPORT ROISSY CDG 2 TGV": ("PARIS (intramuros)", "Paris", "RER B, environ 35 min depuis Gare du Nord, billet aéroport ≈ 13 €"),
     "VERSAILLES CHANTIERS": ("PARIS (intramuros)", "Paris", "train ou RER C, environ 20 min depuis Montparnasse, ticket 2,50 €"),
     "LYON ST EXUPERY TGV.": ("LYON (intramuros)", "Lyon", "tram Rhônexpress depuis Part-Dieu, environ 30 min, ≈ 17 €"),
+    "AVIGNON TGV": ("AVIGNON CENTRE", "Avignon centre", "navette TER, environ 5 min"),
+    "NIMES PONT DU GARD": ("NIMES CENTRE", "Nîmes centre", "navette ou TER, environ 15 min"),
+    "MONTPELLIER SUD DE FRANCE": ("MONTPELLIER SAINT ROCH", "Montpellier centre", "navette ou tram, environ 20 min"),
+    "VALENCE TGV AUVERGNE RHONE ALPES": ("VALENCE VILLE", "Valence centre", "TER, environ 10 min"),
+    "CHAMPAGNE ARDENNE TGV": ("REIMS", "Reims centre", "TER ou tram, environ 10 min"),
+    "BESANCON FRANCHE COMTE TGV": ("BESANCON VIOTTE", "Besançon centre", "TER, environ 15 min"),
 }
 IDF_ACCESS = {k: v[2] for k, v in ANNEX.items() if v[0] == "PARIS (intramuros)"}
 MAIN_STATION_KEY = {"PARIS (intramuros)": "paris", "LYON (intramuros)": "lyon"}
@@ -169,8 +175,22 @@ def _match_city(city, stations):
         return exact
     if len(nq) < 3:                       # « e », « pa »… : trop vague, ferait exploser la recherche
         return [city.upper()]
-    contains = sorted((s for s in stations if nq in normalize(s)), key=len)[:6]
-    return contains or [city.upper()]
+    contains = sorted((s for s in stations if word_start(nq, normalize(s))), key=len)[:6]
+    if contains:
+        return contains
+    # gare hors réseau Max choisie dans la liste (« Lyon Part Dieu », « Paris Montparnasse Hall 1 - 2 ») :
+    # on retombe sur la ville (« lyon », « paris ») pour garder ses trains Max
+    words = nq.split()
+    for n in range(len(words) - 1, 0, -1):
+        sub = " ".join(words[:n])
+        if len(sub) >= 3 and (sub in CITY_ALIASES or any(normalize(s) == sub for s in stations)):
+            return _match_city(sub, stations)
+    return [city.upper()]
+
+
+def word_start(q, name):
+    """q apparaît-il au début d'un mot de name ? (« aix » trouve Aix-les-Bains, pas Morlaix)"""
+    return name.startswith(q) or (" " + q) in name
 
 
 # Paris : le jeu de données regroupe toutes les gares sous « PARIS (intramuros) ». L'axe du train

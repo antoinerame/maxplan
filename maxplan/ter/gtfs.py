@@ -15,6 +15,7 @@ import csv
 import io
 import math
 import os
+import re
 import threading
 import time
 import unicodedata
@@ -55,6 +56,9 @@ def _fold(s):
     s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
     s = " " + s.replace("-", " ").replace("'", " ") + " "
     return " ".join(s.replace(" sainte ", " ste ").replace(" saint ", " st ").split())
+
+
+fold = _fold                # nom replié, pour comparer avec les noms saisis
 
 
 def _mins(hms):
@@ -641,7 +645,10 @@ def places(q, limit=8):
         return []
     areas = _data["areas"]
     hits = [i for name, i in _data["names"] if fq in name]
-    hits.sort(key=lambda i: (not areas[i]["rail"], not _fold(areas[i]["name"]).startswith(fq),
+    word = re.compile(r"(^| )" + re.escape(fq) + r"( |$)")   # « Albi » : Albi Ville avant Albias
+    hits.sort(key=lambda i: (_fold(areas[i]["name"]) != fq,          # « Aix-en-Provence » avant Aix TGV
+                             not areas[i]["rail"], not word.search(_fold(areas[i]["name"])),
+                             not _fold(areas[i]["name"]).startswith(fq),
                              not areas[i]["major"], not areas[i]["sncf"], len(areas[i]["name"])))
     out, seen = [], set()
     for i in hits:
@@ -650,7 +657,7 @@ def places(q, limit=8):
         if k in seen:                 # un même nom d'arrêt dans plusieurs réseaux : une seule fois
             continue
         seen.add(k)
-        out.append({"id": _public_id(a), "name": a["name"], "lat": a["lat"], "lon": a["lon"]})
+        out.append({"id": _public_id(a), "name": a["name"], "lat": a["lat"], "lon": a["lon"], "rail": a["rail"]})
         if len(out) >= limit:
             break
     return out

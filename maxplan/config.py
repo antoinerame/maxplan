@@ -76,6 +76,7 @@ CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip()
 
 # Cohérence des trajets proposés
 DETOUR_MAX_EXPLORE = 1.6         # Explorer : destination via une correspondance trop détournée, masquée
+DETOUR_ABSURD = 3.0             # trajet gratuit plus détourné que ça (Marseille → Paris → Nice) : retiré
 DETOUR_MAX_PAID = 2.0            # trajet avec TER payant plus détourné que ça : retiré (pas juste replié)
 DETOUR_MAX = 1.4                # gare-relais : au plus 40 % de distance en plus que le trajet direct
 TER_MAX_SHARE_OF_FARE = 0.6      # Max + TER retiré s'il coûte plus de 60 % d'un billet direct habituel

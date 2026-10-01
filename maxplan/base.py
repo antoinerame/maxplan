@@ -6,8 +6,11 @@ from datetime import date as Date, timedelta
 
 
 def normalize(s):
+    """Nom comparable : sans accents ni tirets, et « saint » écrit « st » comme dans l'open data
+    (« ST BRIEUC », « ST MALO »… ; on doit les trouver en tapant « Saint-Brieuc »)."""
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
-    return s.lower().replace("-", " ").replace("(intramuros)", "").replace(".", "").strip()
+    s = " " + s.lower().replace("-", " ").replace("'", " ").replace("(intramuros)", "").replace(".", "") + " "
+    return " ".join(s.replace(" sainte ", " ste ").replace(" saint ", " st ").split())
 
 
 def hhmm_to_min(s):

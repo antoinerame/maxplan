@@ -16,7 +16,7 @@ from maxplan.moteur import parcours
 from maxplan.ter import gtfs
 from maxplan.ter import tarifs
 from maxplan.ter.navitia import navitia
-from maxplan.api.commun import shift
+from maxplan.api.commun import BadRequest, shift
 
 
 IO_POOL = ThreadPoolExecutor(max_workers=16)   # géocodage + calculs TER
@@ -177,8 +177,11 @@ def free_place(label):
     (aucune requête à l'API SNCF), sinon géocodage par l'API."""
     if gtfs.ready():
         hits = gtfs.places(nice_place(label), limit=1)
-        if hits:
+        # un simple arrêt de bus dont le nom contient le mot (« Lycée A. Londres » pour « Londres ») ne
+        # vaut pas une ville : on demande à l'API, et on ne garde l'arrêt qu'en dernier recours
+        if hits and (hits[0].get("rail") or gtfs.fold(hits[0]["name"]).startswith(gtfs.fold(nice_place(label)))):
             return hits[0]
+        return navitia.geocode(label) or (hits[0] if hits else None)
     return navitia.geocode(label)
 
 
@@ -193,31 +196,111 @@ def _access_min(station):
     return int(m.group(1)) if m else (30 if a else 0)
 
 
+def note_cost(note):
+    """Prix annoncé pour rejoindre une gare (« ticket 2,50 € », « ≈ 17 € »), 0 si rien."""
+    m = re.search(r"(\d+(?:,\d+)?) €", note or "")
+    return float(m.group(1).replace(",", ".")) if m else 0.0
+
+
+def access(station, ends, near):
+    """Rejoindre une gare annexe (Massy quand on a cherché « Paris ») ou voisine (Lorraine TGV pour
+    Metz) : (ville, comment y aller, minutes, prix), ou None si c'est une gare de la ville cherchée."""
+    a = gares.ANNEX.get(station)
+    if a and a[0] in ends and a[0] not in near:
+        return a[1], a[2], _access_min(station), note_cost(a[2])
+    if station in near:
+        s0, mins, note = near[station]
+        return display_name(s0, navitia._cache.get(s0)), note, gares.note_minutes(note, mins), note_cost(note)
+    return None
+
+
 def drop_dominated(itins):
     """Retire un trajet quand un autre part au plus tôt pareil, arrive au plus tard pareil et coûte au plus
     autant (ex. Max + TER payant alors qu'un TGV Max direct part après et arrive avant).
-    Une gare annexe compte son temps d'accès : un train depuis Massy ne cache pas celui de Montparnasse
-    parti 10 min plus tôt. Une nuit en gare ne se justifie pas pour quelques centimes d'économie."""
+    Une gare annexe compte son temps et son prix d'accès : un train depuis Massy ne cache pas celui de
+    Montparnasse parti 10 min plus tôt, ni un départ de Saint-Exupéry (Rhônexpress ≈ 17 €) celui de
+    Marne-la-Vallée. Une nuit en gare ne se justifie pas pour quelques centimes d'économie."""
     def ends(it):
-        a, b = it["legs"][0], it["legs"][-1]
-        pre = it["_pre"] if "_pre" in it else _access_min(a.get("from") or a.get("o"))
-        post = it["_post"] if "_post" in it else _access_min(b.get("to") or b.get("d"))
-        return it["_dep"] - pre, it["_arr"] + post
+        return it["_dep"] - it.get("_pre", 0), it["_arr"] + it.get("_post", 0)
 
     span = [ends(it) for it in itins]
+    cost = [it["cost_eur"] + it.get("_acc_cost", 0) for it in itins]
+    first = [(it["legs"][0].get("from") or it["legs"][0].get("o")) for it in itins]
 
     def beats(j, i):
         y, x = itins[j], itins[i]
         (yd, ya), (xd, xa) = span[j], span[i]
         tol = 2 if x.get("nocturnal") and not y.get("nocturnal") else 0
-        no_worse = yd >= xd and ya <= xa and y["cost_eur"] <= x["cost_eur"] + tol \
-            and len(y["legs"]) <= len(x["legs"])
-        better = yd > xd or ya < xa or y["cost_eur"] < x["cost_eur"] or len(y["legs"]) < len(x["legs"]) \
-            or bool(tol)
+        no_worse = yd >= xd and ya <= xa and cost[j] <= cost[i] + tol and len(y["legs"]) <= len(x["legs"])
+        better = yd > xd or ya < xa or cost[j] < cost[i] or len(y["legs"]) < len(x["legs"]) or bool(tol)
         return no_worse and better
 
+    # même voyage en double : mêmes heures, même prix, même gare de départ (un train qui dessert deux
+    # gares de la même ville, Part-Dieu puis Perrache, toutes deux « LYON (intramuros) », ou un train
+    # à deux numéros) : on n'en garde qu'un, comme la recherche
+    def same(j, i):
+        return span[j] == span[i] and cost[j] == cost[i] and first[j] == first[i]             and len(itins[j]["legs"]) == len(itins[i]["legs"])
+
     n = len(itins)
-    return [x for i, x in enumerate(itins) if not any(beats(j, i) for j in range(n) if j != i)]
+    return [x for i, x in enumerate(itins)
+            if not any(beats(j, i) or (j < i and same(j, i)) for j in range(n) if j != i)]
+
+
+def od_areas(src, dst, stations):
+    """Gares de départ et d'arrivée (avec leurs gares voisines). Les voisines ajoutées d'un côté ne
+    doivent pas être des gares de l'autre (Massy → Paris : Paris n'est pas une « voisine » de départ).
+    Si départ et arrivée se recoupent quand même, c'est la même ville : pas de trajet en train Max."""
+    (o, o_near), (t, t_near) = gares.resolve_area(src, stations), gares.resolve_area(dst, stations)
+    if not any(s in known for s in o for known in (stations, set(donnees.all_stations()))):
+        raise BadRequest(f"Aucune gare Max ne correspond à « {src} » au départ : choisis une gare dans la liste.")
+    shared = set(o_near) & set(t_near)            # Metz → Nancy : Lorraine TGV n'est ni l'un ni l'autre
+    o = [s for s in o if s not in shared]
+    t = [s for s in t if s not in shared]
+    o_near = {k: v for k, v in o_near.items() if k not in shared}
+    t_near = {k: v for k, v in t_near.items() if k not in shared}
+    o_base, t_base = [s for s in o if s not in o_near], [s for s in t if s not in t_near]
+    o = [s for s in o if s not in t_base]
+    o_near = {k: v for k, v in o_near.items() if k not in t_base}
+    t = [s for s in t if s not in o_base]
+    t_near = {k: v for k, v in t_near.items() if k not in o_base}
+    if not o or not t or set(o) & set(t):
+        raise BadRequest("Le départ et l'arrivée sont dans la même ville (ou deux gares voisines) : "
+                         "pas de trajet en train Max entre elles.")
+    return o, o_near, t, t_near
+
+
+def path_ratio(path):
+    """Distance parcourue / distance à vol d'oiseau d'un trajet Max (gares géocodées en cache)."""
+    pts = [navitia._cache.get(path[0]["o"])] + [navitia._cache.get(e["d"]) for e in path]
+    if len(pts) < 3 or not all(pts):
+        return 1.0
+    run = sum(base.haversine_km(a["lat"], a["lon"], b["lat"], b["lon"]) for a, b in zip(pts, pts[1:]))
+    return run / max(1.0, base.haversine_km(pts[0]["lat"], pts[0]["lon"], pts[-1]["lat"], pts[-1]["lon"]))
+
+
+def max_trips(paths, origins, targets, o_near=None, t_near=None, nights=False):
+    """Trajets 100 % Max d'un jour, filtrés exactement comme la recherche les affiche (sans TER) :
+    pas de nuit (sauf demandée), pas de trajet bien plus long que le plus rapide ni de détour absurde,
+    pas de trajet dominé ni de doublon. Sert au calendrier, à « Rentable ? » et aux idées du jour, pour
+    qu'ils comptent ce que la recherche montre."""
+    its = []
+    for p in paths:
+        if path_ratio(p) > config.DETOUR_ABSURD:
+            continue
+        it = {"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p, "nocturnal": path_nocturnal(p)}
+        a = access(p[0]["o"], origins, o_near or {})
+        if a:
+            it["_pre"], it["_acc_cost"] = a[2], a[3]
+        a = access(p[-1]["d"], targets, t_near or {})
+        if a:
+            it["_post"], it["_acc_cost"] = a[2], it.get("_acc_cost", 0) + a[3]
+        its.append(it)
+    dur = lambda x: x["_arr"] - x["_dep"]
+    fastest = min((dur(x) for x in its if not x["nocturnal"]), default=None) or min(map(dur, its), default=None)
+    if fastest:
+        its = [x for x in its if dur(x) <= (max(2 * fastest, fastest + 720) if x["nocturnal"]
+                                            else max(2 * fastest, fastest + 240))]
+    return drop_dominated(its if nights else [x for x in its if not x["nocturnal"]])
 
 
 def detour_ratio(origins, relay, fgeo, dest, direct_km):

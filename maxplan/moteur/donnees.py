@@ -96,6 +96,6 @@ def search_stations(q, limit=8):
     nq = normalize(q)
     if not nq:
         return []
-    hits = [s for s in all_stations() if nq in normalize(s)]
+    hits = [s for s in all_stations() if normalize(s).startswith(nq) or (" " + nq) in normalize(s)]
     hits.sort(key=lambda s: (not normalize(s).startswith(nq), len(s)))
     return hits[:limit]

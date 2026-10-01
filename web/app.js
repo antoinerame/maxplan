@@ -652,7 +652,7 @@
     const dirs = state.rt ? ['out', 'ret'] : ['out'];
     const shown = state.days.filter(d => d.dir === state.dir);
     const loaded = state.days.filter(d => !d.loading).length, total = state.days.length;
-    const pool = d => (d.itineraries || []).filter(t => state.showNight || !t._night);
+    const pool = d => (d.itineraries || []).filter(t => (state.showNight || !t._night) && (!state.freeOnly || !t.paid));
     const all = shown.flatMap(pool);
     const freeN = all.filter(t => !t.paid).length;
     const paid = all.filter(t => t.paid).map(t => t.cost_eur);

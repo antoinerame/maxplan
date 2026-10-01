@@ -6,8 +6,10 @@ from maxplan.moteur import donnees
 from maxplan.moteur import gares
 from maxplan.moteur import parcours
 from maxplan.ter import prix
-from maxplan.api.commun import BadRequest, _flag, _int, _p, _place, check_date, past_min, senior_weekend
-from maxplan.api.trajets import DAY_POOL, drop_dominated, edges_for, path_nocturnal, ter_coverage
+from maxplan.api.commun import (
+    BadRequest, _flag, _int, _p, _place, check_date, coming_dates, past_min, senior_weekend,
+)
+from maxplan.api.trajets import DAY_POOL, edges_for, max_trips, od_areas, ter_coverage
 
 
 def do_trends(qs):
@@ -26,6 +28,7 @@ def do_calendar(qs):
         raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
     prefs = prix.prefs_from_qs(qs)
     maxconn, nights = _int(qs, "maxconn", 3, 0, 3), _flag(qs, "nights", False)
+    od_areas(src, dst, set(donnees.all_stations()))   # départ inconnu, même ville : erreur claire
 
     def one(date):
         if senior_weekend(prefs, date):
@@ -35,18 +38,19 @@ def do_calendar(qs):
         except Exception:
             return {"date": date, "n": None}
         stations = {e["o"] for e in edges} | {e["d"] for e in edges}
-        paths = parcours.search(edges, gares.resolve_city(src, stations), gares.resolve_city(dst, stations),
-                            max_conn=maxconn, max_results=200, min_dep=past_min(date))
-        if not nights:
-            paths = [p for p in paths if not path_nocturnal(p)]
-        its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p} for p in paths])
+        try:
+            o, o_near, t, t_near = od_areas(src, dst, stations)
+        except BadRequest:
+            return {"date": date, "n": 0}
+        paths = parcours.search(edges, o, t, max_conn=maxconn, max_results=200, min_dep=past_min(date))
+        its = max_trips(paths, o, t, o_near, t_near, nights=nights)   # comme la recherche les affiche
         if not its:
             return {"date": date, "n": 0}
         return {"date": date, "n": len(its), "direct": any(len(x["legs"]) == 1 for x in its),
                 "first": base.min_to_hhmm(min(x["_dep"] for x in its)),
                 "best_min": min(x["_arr"] - x["_dep"] for x in its)}
 
-    return {"from": src, "to": dst, "days": list(DAY_POOL.map(one, donnees.dataset_dates())),
+    return {"from": src, "to": dst, "days": list(DAY_POOL.map(one, coming_dates())),
             "ter_coverage": ter_coverage()}
 
 
@@ -79,10 +83,8 @@ def do_ideas(qs):
         if (o, d) in seen:
             continue
         seen.add((o, d))
-        paths = parcours.search(edges, gares.resolve_city(o, stations), gares.resolve_city(d, stations),
-                            max_conn=1, max_results=60)
-        its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p}
-                              for p in paths if not path_nocturnal(p)])
+        (oo, o_near), (tt, t_near) = gares.resolve_area(o, stations), gares.resolve_area(d, stations)
+        its = max_trips(parcours.search(edges, oo, tt, max_conn=1, max_results=200), oo, tt, o_near, t_near)
         if its:
             ideas.append({"from": o, "to": d, "from_name": IDEA_CITIES[o], "to_name": IDEA_CITIES[d],
                           "n": len(its), "direct": any(len(x["legs"]) == 1 for x in its),
