@@ -31,6 +31,7 @@ LABEL_OVERRIDES = {
     "VALENCE TGV AUVERGNE RHONE ALPES": "Valence TGV",
     "MULHOUSE VILLE": "Mulhouse",
     "BOULOGNE VILLE": "Boulogne-sur-Mer",
+    "MONTELIMAR GARE SNCF": "Montélimar",
 }
 
 
@@ -78,10 +79,10 @@ class Navitia:
             if (self._cache.get(k) or {}).get("name", "").find("2") < 0:
                 self._cache.pop(k, None)
         for k in ("NICE VILLE", "METZ VILLE", "MACON VILLE", "DIJON VILLE", "BOULOGNE VILLE",
-                  "MULHOUSE VILLE"):
+                  "MULHOUSE VILLE", "MONTELIMAR GARE SNCF"):
             name = _norm((self._cache.get(k) or {}).get("name", ""))
             if name and (not name.startswith(_norm(k.split()[0])) or "mairie" in name
-                         or "tintelleries" in name):
+                         or "tintelleries" in name or "routiere" in name):
                 self._cache.pop(k, None)
         self._miss = {}   # échecs récents (mémoire seulement) : libellé -> horodatage
         self._places = {}  # autocomplétion : requête -> (horodatage, résultats)

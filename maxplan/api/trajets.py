@@ -37,13 +37,28 @@ def edges_for(date):
         hit = _EDGES.get(date)
         if hit and time.time() - hit[0] < config.EDGES_TTL:
             return hit[1]
-        edges = donnees.fetch_oui_edges(date)
+        edges = annotate(donnees.fetch_oui_edges(date), date)
         now = time.time()
         _EDGES[date] = (now, edges)
         for d, (t, _) in list(_EDGES.items()):
             if now - t > 2 * config.EDGES_TTL:
                 _EDGES.pop(d, None)
         return edges
+
+
+def annotate(edges, date):
+    """Pose sur chaque train sa vraie gare parisienne (horaires SNCF) : les correspondances à Paris se
+    calculent alors sur la bonne gare (un TGV « axe Est » peut arriver Gare de Lyon le dimanche)."""
+    if not gtfs.ready():
+        return edges
+    for e in edges:
+        for key, label, when in (("ro", e["o"], "dep"), ("rd", e["d"], "arr")):
+            if "(intramuros)" in label:
+                st = gtfs.train_stop(e["train"], date, e["dep"] if when == "dep" else e["arr"], when)
+                name = st and GTFS_NAMES.get(nice_place(st["name"]), nice_place(st["name"]))
+                if name and (label != "PARIS (intramuros)" or name in gares.PARIS_COORDS):
+                    e[key] = name
+    return edges
 
 
 def geocode_many(labels):
@@ -166,7 +181,7 @@ def max_leg(edge, date, geo):
         "dep_day": edge["dep"] // 1440, "arr_day": edge["arr"] // 1440,
         "from_lat": og and og["lat"], "from_lon": og and og["lon"],
         "to_lat": dg and dg["lat"], "to_lon": dg and dg["lon"],
-        "book_url": booking_url(so or o, None if so else og, sd or d, None if sd else dg,
+        "book_url": booking_url(so or o, {"name": so} if so else og, sd or d, {"name": sd} if sd else dg,
                                 shift(date, edge["dep"] // 1440), dep),
 
     }
@@ -243,14 +258,14 @@ def drop_dominated(itins):
         return it["_dep"] - it.get("_pre", 0), it["_arr"] + it.get("_post", 0)
 
     span = [ends(it) for it in itins]
-    cost = [it["cost_eur"] + it.get("_acc_cost", 0) for it in itins]
+    cost = [it["cost_eur"] for it in itins]
     first = [(it["legs"][0].get("from") or it["legs"][0].get("o")) for it in itins]
 
     def beats(j, i):
         y, x = itins[j], itins[i]
         (yd, ya), (xd, xa) = span[j], span[i]
         tol = 2 if x.get("nocturnal") and not y.get("nocturnal") else 0
-        no_worse = yd >= xd and ya <= xa and cost[j] <= cost[i] + tol and len(y["legs"]) <= len(x["legs"])
+        no_worse = yd >= xd and ya <= xa and cost[j] <= cost[i] + tol             and (len(y["legs"]) <= len(x["legs"]) or cost[j] <= cost[i] - 2)
         better = yd > xd or ya < xa or cost[j] < cost[i] or len(y["legs"]) < len(x["legs"]) or bool(tol)
         return no_worse and better
 
@@ -269,13 +284,31 @@ def drop_dominated(itins):
             if not any(beats(j, i) or same(j, i) for j in range(n) if j != i)]
 
 
+def nearest_max(place, n=3, km=150):
+    """Gares Max les plus proches d'un lieu sans train Max (Gap -> Grenoble, Valence…)."""
+    g = free_place(place)
+    if not g:
+        return []
+    cands = []
+    for label in donnees.all_stations():
+        h = navitia._cache.get(label)
+        if h:
+            d = base.haversine_km(g["lat"], g["lon"], h["lat"], h["lon"])
+            if d <= km:
+                cands.append((d, display_name(label, h)))
+    return list(dict.fromkeys(name for _, name in sorted(cands)))[:n]
+
+
 def od_areas(src, dst, stations):
     """Gares de départ et d'arrivée (avec leurs gares voisines). Les voisines ajoutées d'un côté ne
     doivent pas être des gares de l'autre (Massy → Paris : Paris n'est pas une « voisine » de départ).
     Si départ et arrivée se recoupent quand même, c'est la même ville : pas de trajet en train Max."""
     (o, o_near), (t, t_near) = gares.resolve_area(src, stations), gares.resolve_area(dst, stations)
     if not any(s in known for s in o for known in (stations, set(donnees.all_stations()))):
-        raise BadRequest(f"Aucune gare Max ne correspond à « {src} » au départ : choisis une gare dans la liste.")
+        near = nearest_max(src)
+        raise BadRequest(f"Pas de train Max au départ de « {src} »" + (
+            f" : pars d'une gare Max proche ({', '.join(near)}), en TER ou en car jusque-là." if near
+            else " : choisis une gare de la liste."))
     shared = set(o_near) & set(t_near)            # Metz → Nancy : Lorraine TGV n'est ni l'un ni l'autre
     o = [s for s in o if s not in shared]
     t = [s for s in t if s not in shared]
@@ -301,6 +334,29 @@ def path_ratio(path):
     return run / max(1.0, base.haversine_km(pts[0]["lat"], pts[0]["lon"], pts[-1]["lat"], pts[-1]["lon"]))
 
 
+def path_tickets(p, origins, targets, o_near, t_near):
+    """Total des tickets d'un trajet Max (changements de gare et accès aux gares annexes), calculé comme
+    la recherche l'affiche ; à partir de TRANSFER_PAID_MIN, le trajet n'est plus « à 0 € »."""
+    total = 0.0
+    for a, b in zip(p, p[1:]):
+        if a["d"] != b["o"]:
+            total += note_cost(gares.twin_note(a["d"], b["o"], a, b))
+        elif "(intramuros)" in a["d"]:
+            x = a.get("rd") or gares.city_station(a["d"], a)
+            y = b.get("ro") or gares.city_station(b["o"], b)
+            total += note_cost(gares.city_change_note(x, y))
+    for st, ends, near in ((p[0]["o"], origins, o_near or {}), (p[-1]["d"], targets, t_near or {})):
+        acc = access(st, ends, near)
+        total += acc[3] if acc else 0
+    return round(total, 2)
+
+
+def ticket_price(total):
+    """Prix ajouté au trajet pour ses tickets : rien sous TRANSFER_PAID_MIN (un ticket de métro ne rend
+    pas un trajet « payant »), le total au-delà (Rhônexpress, billet aéroport, plusieurs navettes)."""
+    return total if total >= config.TRANSFER_PAID_MIN else 0
+
+
 def max_trips(paths, origins, targets, o_near=None, t_near=None, nights=False):
     """Trajets 100 % Max d'un jour, filtrés exactement comme la recherche les affiche (sans TER) :
     pas de nuit (sauf demandée), pas de trajet bien plus long que le plus rapide ni de détour absurde,
@@ -310,17 +366,11 @@ def max_trips(paths, origins, targets, o_near=None, t_near=None, nights=False):
     for p in paths:
         if path_ratio(p) > config.DETOUR_ABSURD:
             continue
-        extra = round(sum(c for c in (note_cost(gares.twin_note(a["d"], b["o"], a, b)) for a, b in zip(p, p[1:])
-                                      if a["d"] != b["o"]) if c >= config.TRANSFER_PAID_MIN), 2)
-        it = {"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": extra, "legs": p,
-              "nocturnal": path_nocturnal(p)}
+        it = {"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "legs": p, "nocturnal": path_nocturnal(p),
+              "cost_eur": ticket_price(path_tickets(p, origins, targets, o_near, t_near))}
         for k, a in (("_pre", access(p[0]["o"], origins, o_near or {})), ("_post", access(p[-1]["d"], targets, t_near or {}))):
             if a:
                 it[k] = a[2]
-                if a[3] >= config.TRANSFER_PAID_MIN:       # comme la recherche : ce trajet n'est pas à 0 €
-                    it["cost_eur"] = round(it["cost_eur"] + a[3], 2)
-                else:
-                    it["_acc_cost"] = it.get("_acc_cost", 0) + a[3]
         its.append(it)
     dur = lambda x: x["_arr"] - x["_dep"]
     free = [x for x in its if not x["cost_eur"]]        # comme la recherche : le plus rapide des gratuits
@@ -346,6 +396,23 @@ def detour_ratio(origins, relay, fgeo, dest, direct_km):
             r = via / max(1.0, base.haversine_km(og["lat"], og["lon"], dest["lat"], dest["lon"]))
             best = r if best is None else min(best, r)
     return best or 0
+
+
+def backtracks(legs, km=100):
+    """Le trajet repart-il en arrière (s'éloigne de plus de `km` de l'arrivée après s'en être approché) ?"""
+    pts = [(l.get("to_lat"), l.get("to_lon")) for l in legs]
+    end = pts[-1]
+    if end[0] is None:
+        return False
+    best = None
+    for la, lo in [(legs[0].get("from_lat"), legs[0].get("from_lon"))] + pts[:-1]:
+        if la is None:
+            continue
+        d = base.haversine_km(la, lo, *end)
+        if best is not None and d > best + km:
+            return True
+        best = d if best is None else min(best, d)
+    return False
 
 
 def path_detour(legs):
@@ -393,20 +460,17 @@ def max_legs(path, date, geo):
     return legs
 
 
-def transfer_cost(legs):
-    """Changements de gare vraiment payants dans un trajet (Rhônexpress ≈ 17 €, billet aéroport ≈ 14 €) :
-    le trajet n'est alors plus « à 0 € ». Les petits tickets (métro, navette à 2-3 €) sont signalés
-    dans le détail sans changer le prix affiché."""
-    return round(sum(c for c in (l.get("change_cost", 0) for l in legs) if c >= config.TRANSFER_PAID_MIN), 2)
+def change_tickets(legs):
+    """Total des tickets des changements de gare d'un trajet affiché (métro, Rhônexpress, navettes…)."""
+    return round(sum(l.get("change_cost", 0) for l in legs), 2)
 
 
 def itinerary_from_path(path, date, geo):
 
     legs = max_legs(path, date, geo)
-    extra = transfer_cost(legs)
     return {
-        "_dep": path[0]["dep"], "_arr": path[-1]["arr"],
-        "type": "max", "paid": extra > 0, "cost_eur": extra, "transfer_cost": extra,
+        "_dep": path[0]["dep"], "_arr": path[-1]["arr"], "_tickets": change_tickets(legs),
+        "type": "max", "paid": False, "cost_eur": 0,
         "nresa": len(legs), "changes": len(legs) - 1,
         "departure": legs[0]["dep"], "arrival": legs[-1]["arr"],
         "arrival_day": path[-1]["arr"] // 1440,

@@ -203,7 +203,7 @@ def _load_sncf(b):
         a = point_area.get(p)
         if a is None:
             continue
-        if point_mode.get(p) in ("TGV INOUI", "INTERCITES"):   # trains Max : leurs vraies gares
+        if point_mode.get(p) in ("TGV INOUI", "INTERCITES", "INTERCITES de nuit", "ICE", "Lyria"):   # trains Max
             t_arr, t_dep = _times(st)
             if t_arr is not None:
                 long_trains.setdefault(tid, []).append((int(st["stop_sequence"]), a, t_arr, t_dep))
@@ -692,8 +692,8 @@ def places(q, limit=8):
     areas = _data["areas"]
     hits = [i for name, i in _data["names"] if fq in name]
     word = re.compile(r"(^| )" + re.escape(fq) + r"( |$)")   # « Albi » : Albi Ville avant Albias
-    hits.sort(key=lambda i: (_fold(areas[i]["name"]) != fq,          # « Aix-en-Provence » avant Aix TGV
-                             not areas[i]["rail"], not word.search(_fold(areas[i]["name"])),
+    hits.sort(key=lambda i: (not areas[i]["rail"], _fold(areas[i]["name"]) != fq,   # Aix-en-Provence avant Aix TGV
+                             not word.search(_fold(areas[i]["name"])),
                              not _fold(areas[i]["name"]).startswith(fq),
                              not areas[i]["major"], not areas[i]["sncf"], len(areas[i]["name"])))
     out, seen = [], set()

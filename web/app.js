@@ -542,6 +542,7 @@
     if (state.rt) {
       const rfd = $('#r-fd').value, rtd = $('#r-td').value || rfd;
       if (!rfd) { toast('Choisis une date de retour.'); return; }
+      if (rfd < fd) { toast("Le retour est avant l'aller : change la date de retour."); $('#r-fd').focus(); return; }
       legs.push({ dir: 'ret', from: to, to: from, fromName: toIn.value.trim(), toName: fromIn.value.trim(), fd: rfd, td: rtd, start: $('#r-start').value, end: $('#r-end').value });
     }
     const common = {
@@ -751,8 +752,10 @@
     const idfLabel = /^(Depuis|Vers) Paris /.test(idf || '') ? 'Gare d\'Île-de-France' : 'Gare voisine';
     const est = it.legs.some(l => l.estimated_schedule);
     const margin = minMargin(it);
-    const ter = it.legs.some(l => !l.free);
-    const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (ter ? '<em class="b ter">+ TER</em>' : '')
+    const paidModes = it.legs.filter(l => !l.free).map(l => l.mode || '');
+    const ter = !paidModes.length ? '' : paidModes.every(m => /car|bus|zou|lio|al[ée]op|breizhgo|fluo|r[ée]mi|nomad|mobigo/i.test(m)) ? '+ car'
+      : paidModes.some(m => /intercit/i.test(m)) && !paidModes.some(m => /TER/.test(m)) ? '+ Intercités' : '+ TER';
+    const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (ter ? `<em class="b ter">${ter}</em>` : '')
       + (it.transfer_cost ? `<em class="b ter" title="Rhônexpress, billet aéroport ou navette pour changer de gare ou rejoindre la gare : non compris dans le Max">Transport payant ≈ ${nf.format(it.transfer_cost)} €</em>` : '')
       + (idf ? `<em class="b via">${idfLabel}</em>` : '')
 
@@ -820,7 +823,7 @@
           <div class="s-note">Estimation : ${p.base ? `tarif normal ≈ ${nf.format(p.base)} € · ` : ''}${esc(p.label || '')}. Les promos affichées par SNCF ne se cumulent pas avec les cartes.</div>`;
       }
       h += `<li class="leg${l.free ? '' : ' paid'}"><span class="s-time"></span><span class="s-node"></span><div class="s-body">${body}
-        <a class="book" href="${esc(l.book_url)}" target="_blank" rel="noopener">Voir ce train sur SNCF Connect ${ICON.ext}</a></div></li>`;
+        <a class="book" href="${esc(l.book_url)}" target="_blank" rel="noopener">Voir ${l.free ? 'ce train' : 'ce trajet'} sur SNCF Connect ${ICON.ext}</a></div></li>`;
     });
     const last = it.legs[it.legs.length - 1];
     h += `<li class="stop last"><span class="s-time">${esc(last.arr)}${last.arr_day ? `<sup>+${last.arr_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(last.to_name)}<small>arrivée</small>${last.access_to ? `<em class="move">${ICON.walk}${esc(last.access_to)}</em>` : ''}</span></li>`;
@@ -852,13 +855,21 @@
   /* ================================================================== calendrier du mois */
   const WD = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
   function closeCal() { $('#cal').hidden = true; $('#btn-cal').setAttribute('aria-expanded', 'false'); }
+  function keepReturnAfter() {
+    if (!state.rt || $('#r-fd').value >= $('#s-td').value) return;
+    const d = $('#s-td').value;
+    setRT(true, d, $('#r-td').value >= d && $('#r-td').value <= addDays(d, 7) ? $('#r-td').value : d);
+  }
   async function openCal() {
-    const from = stationValue($('#s-from')), to = stationValue($('#s-to'));
+    if (!state.rt) state.calDir = 'out';
+    const ret = state.calDir === 'ret';
+    let from = stationValue($('#s-from')), to = stationValue($('#s-to'));
+    if (ret) [from, to] = [to, from];
     const box = $('#cal');
     box.hidden = false;
     $('#btn-cal').setAttribute('aria-expanded', 'true');
     if (!from || !to) { box.innerHTML = `<p class="cal-msg">Indique d'abord un départ et une arrivée : le calendrier montre les jours avec des trains à 0 €.</p>`; return; }
-    const key = `${from}|${to}|${opts.nights}|${profile.sub}`;
+    const key = `${from}|${to}|${opts.nights}|${profile.sub}`;   // (sens compris : départ et arrivée inversés au retour)
     if (state.cal?.key !== key) {
       // calendrier « fantôme » qui scintille en vague pendant le calcul
       box.innerHTML = `<div class="cal-head">${loadingHTML('Recherche des trains à 0 € sur les 30 prochains jours…')}</div>
@@ -874,7 +885,7 @@
     const { r } = state.cal, box = $('#cal');
     const days = r.days.filter(d => d.date);
     if (!days.length) { box.innerHTML = '<p class="cal-msg">Données indisponibles.</p>'; return; }
-    const sel = $('#s-fd').value;
+    const sel = state.calDir === 'ret' ? $('#r-fd').value : $('#s-fd').value;
     const ter = r.ter_coverage?.end ? `${r.ter_coverage.end.slice(0, 4)}-${r.ter_coverage.end.slice(4, 6)}-${r.ter_coverage.end.slice(6, 8)}` : null;
     const best = Math.max(...days.map(d => d.n || 0));
     // grille lundi → dimanche, en commençant au lundi de la première semaine
@@ -891,7 +902,9 @@
       cells.push(`<button type="button" class="cal-day l${lvl}${d.date === sel ? ' is-sel' : ''}${ter && d.date > ter ? ' no-ter' : ''}" data-day="${d.date}" title="${esc(title)}" aria-label="${esc(fmtDay(d.date))} : ${esc(title)}">
         ${mlabel}<b>${dt.getDate()}</b><span>${n ? n : '–'}</span></button>`);
     }
-    box.innerHTML = `<div class="cal-head"><b>Trains à 0 € par jour</b><small>100 % Max, sans TER · touche un jour pour voir les trains</small></div>
+    const dirs = state.rt ? `<div class="seg cal-dirs" role="group" aria-label="Sens">${[['out', 'Aller'], ['ret', 'Retour']].map(([v, l]) =>
+      `<button type="button" data-cal-dir="${v}" aria-pressed="${(state.calDir || 'out') === v}">${l}</button>`).join('')}</div>` : '';
+    box.innerHTML = `<div class="cal-head"><b>Trains à 0 € par jour${state.calDir === 'ret' ? ' (retour)' : ''}</b>${dirs}<small>100 % Max, sans TER · touche un jour pour voir les trains</small></div>
       <div class="cal-grid">${WD.map(w => `<span class="cal-wd">${w}</span>`).join('')}${cells.join('')}</div>
       <div class="trends" id="trends">${loadingHTML('Chargement des tendances…')}</div>`;
     loadTrends();
@@ -1345,22 +1358,36 @@
     $('#btn-swap').addEventListener('click', swapOD);
     $$('.chip[data-quick]').forEach(c => c.addEventListener('click', () => {
       setDates(...quickRange(c.dataset.quick));
-      if (state.rt && $('#r-fd').value < $('#s-td').value) setRT(true, addDays($('#s-td').value, 1));
+      // week-end : retour le dimanche ; sinon le lendemain de l'aller
+      if (state.rt) { const d = c.dataset.quick === 'weekend' ? $('#s-td').value : addDays($('#s-td').value, 1); setRT(true, d, d); }
     }));
     $('#s-fd').addEventListener('change', () => {
       if (!$('#s-td').value || $('#s-td').value < $('#s-fd').value) $('#s-td').value = $('#s-fd').value;
-      markQuick();
+      markQuick(); keepReturnAfter();
     });
-    $('#s-td').addEventListener('change', markQuick);
-    $('#r-fd').addEventListener('change', () => { if (!$('#r-td').value || $('#r-td').value < $('#r-fd').value) $('#r-td').value = $('#r-fd').value; });
+    $('#s-td').addEventListener('change', () => { markQuick(); keepReturnAfter(); });
+    $('#r-fd').addEventListener('change', () => {
+      const a = $('#r-fd').value, b = $('#r-td').value;
+      if (!b || b < a || b > addDays(a, 7)) $('#r-td').value = a;   // pas 8 jours de recherche par mégarde
+    });
     $('#btn-add-ret').addEventListener('click', () => { setRT(true); $('#r-fd').focus(); });
     $('#btn-cal').addEventListener('click', () => ($('#cal').hidden ? openCal() : closeCal()));
     $('#cal').addEventListener('click', e => {
+      const dirBtn = e.target.closest('[data-cal-dir]');
+      if (dirBtn) { state.calDir = dirBtn.dataset.calDir; openCal(); return; }
       const b = e.target.closest('[data-day]');
       if (!b) return;
-      setDates(b.dataset.day, b.dataset.day);
-      $('#s-start').value = ''; $('#s-end').value = '';
-      if (state.rt && $('#r-fd').value < b.dataset.day) setRT(true, addDays(b.dataset.day, 2));
+      const day = b.dataset.day;
+      if (state.calDir === 'ret') {
+        setRT(true, day, day);
+        $('#r-start').value = ''; $('#r-end').value = '';
+      } else {
+        setDates(day, day);
+        $('#s-start').value = ''; $('#s-end').value = '';
+        // retour : le dimanche après un vendredi ou un samedi, sinon deux jours après
+        const dow = noon(day).getDay();
+        if (state.rt && $('#r-fd').value < day) { const r = addDays(day, dow === 5 ? 2 : dow === 6 ? 1 : 2); setRT(true, r, r); }
+      }
       runSearch();
     });
     for (const id of ['#s-from', '#s-to']) $(id).addEventListener('change', () => { if (!$('#cal').hidden) openCal(); });
@@ -1371,7 +1398,7 @@
     $('#btn-fav').addEventListener('click', toggleFav);
     $('#search-sum').addEventListener('click', e => {
       if (e.target.closest('#btn-edit')) { state.editing = true; refreshView(false); $('#s-from').focus(); }
-      if (e.target.closest('#btn-sum-cal')) { state.editing = true; refreshView(false); openCal(); }
+      if (e.target.closest('#btn-sum-cal')) { state.calDir = state.dir; state.editing = true; refreshView(false); openCal(); }
     });
 
     // délégation : boutons carte (résultats et explorer)

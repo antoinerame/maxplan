@@ -7,7 +7,7 @@ import urllib.request
 from maxplan import historique
 from maxplan.moteur import donnees
 from maxplan.ter.navitia import navitia
-from maxplan.api.trajets import DAY_POOL, _EDGES, edges_for, geocode_many
+from maxplan.api.trajets import DAY_POOL, _EDGES, annotate, edges_for, geocode_many
 
 
 def warmup():
@@ -50,7 +50,7 @@ def history_loop():
             if (fresh or time.gmtime().tm_hour >= 8) and historique.last_run() != today:
                 data = {}
                 for d in donnees.dataset_dates():
-                    edges = donnees.fetch_oui_edges(d)
+                    edges = annotate(donnees.fetch_oui_edges(d), d)
                     _EDGES[d] = (time.time(), edges)       # rafraîchit le cache au passage
                     data[d] = edges
                 n = historique.snapshot(data, today)

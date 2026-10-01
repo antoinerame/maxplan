@@ -12,7 +12,7 @@ from maxplan.ter import tarifs
 from maxplan.ter.navitia import navitia
 from maxplan.api.commun import BadRequest, _p, _place, coming_dates, senior_weekend, shift, weekday_idx
 from maxplan.api.trajets import (
-    DAY_POOL, dest_place, display_name, edges_for, max_trips, od_areas, path_nocturnal, tail_end,
+    DAY_POOL, dest_place, detour_ratio, display_name, edges_for, max_trips, od_areas, path_nocturnal, tail_end,
 )
 
 
@@ -47,6 +47,9 @@ def do_value(qs):
                 continue
             km = base.haversine_km(g["lat"], g["lon"], dest["lat"], dest["lon"])
             if km > config.TER_MAX_DISTANCE_KM or (o_km is not None and km >= o_km):
+                continue
+            # pas de détour que la recherche refuserait (Paris → Valence pour remonter à Lyon)
+            if o_km and detour_ratio(origins, s, {}, dest, o_km) > config.DETOUR_MAX:
                 continue
             est = prix.estimate([{"mode": "TER", "dist_km": km, "lat": (g["lat"] + dest["lat"]) / 2,
                                      "lon": (g["lon"] + dest["lon"]) / 2}], prefs)["price"]

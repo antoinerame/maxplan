@@ -33,7 +33,7 @@ MIN_CONNECTION_MIN = 15          # temps de correspondance mini (gare simple)
 MIN_CONNECTION_INTRAMUROS = 30   # idem pour une ville multi-gares "(intramuros)"
 MAX_LAYOVER_MIN = 4 * 60         # attente max en correspondance
 MAX_TOTAL_MIN = 16 * 60          # durée totale max d'un itinéraire
-TER_MAX_TAIL_MIN = 4 * 60        # durée max d'un segment TER de complément
+TER_MAX_TAIL_MIN = 5 * 60        # durée max d'un segment TER de complément (Valence → Briançon ≈ 4 h 30)
 TER_MAX_DISTANCE_KM = 320        # ne tente un pont TER que vers une gare frontière < cette distance
 TER_CANDIDATES = 7               # nb de gares frontières les plus proches testées en TER
 

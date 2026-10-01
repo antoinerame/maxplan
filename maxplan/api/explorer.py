@@ -6,7 +6,7 @@ from maxplan.moteur import gares
 from maxplan.moteur import parcours
 from maxplan.ter import prix
 from maxplan.api.commun import SENIOR_NOTICE, _int, _p, _place, check_date, past_min, senior_weekend
-from maxplan.api.trajets import display_name, edges_for, geocode_many
+from maxplan.api.trajets import access, display_name, edges_for, geocode_many, ticket_price
 
 
 def do_explore(qs):
@@ -14,12 +14,16 @@ def do_explore(qs):
     prefs = prix.prefs_from_qs(qs)
     edges = [] if senior_weekend(prefs, date) else edges_for(date)
     stations = {e["o"] for e in edges} | {e["d"] for e in edges}
-    origins = gares.resolve_city(src, stations)
+    all_origins, near = gares.resolve_area(src, stations)
+    # « où aller à 0 € » : pas de départ d'une gare qu'on ne rejoint qu'en payant (Saint-Exupéry et son
+    # Rhônexpress quand on part de Lyon, Lorraine TGV et sa navette quand on part de Metz)
+    origins = [o for o in all_origins
+               if not ticket_price((access(o, all_origins, near) or (0, 0, 0, 0))[3])] or all_origins
     best = parcours.reachable(edges, origins, max_conn=_int(qs, "maxconn", 1, 0, 2), min_dep=past_min(date))
     geo = geocode_many(list(origins) + list(best))
     og = next((geo[o] for o in origins if geo.get(o)), None)
     # la ville de départ elle-même (Lyon depuis Saint-Exupéry, Massy depuis Paris) n'est pas une destination
-    home = set(origins) | {t for o in origins for t, _, _ in gares.TWINS.get(o, ())}
+    home = set(all_origins) | {t for o in all_origins for t, _, _ in gares.TWINS.get(o, ())}
     dests = []
     for label, (nlegs, path) in best.items():
         g = geo.get(label)
