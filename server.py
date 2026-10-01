@@ -25,6 +25,7 @@ import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as Date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from email.utils import formatdate, parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -43,7 +44,7 @@ import regions
 import tgvmax_core as core
 from navitia import navitia
 
-VERSION = "3.6"
+VERSION = "3.7"
 WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web"))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}$")
@@ -226,17 +227,37 @@ def ter_coverage():
     return gtfs.coverage() or navitia.coverage()
 
 
+def _access_min(station):
+    """Minutes pour rejoindre une gare annexe depuis le centre (Massy, Marne-la-Vallée…), 0 sinon."""
+    a = core.ANNEX.get(station)
+    m = a and re.search(r"environ (\d+) min", a[2])
+    return int(m.group(1)) if m else (30 if a else 0)
+
+
 def drop_dominated(itins):
     """Retire un trajet quand un autre part au plus tôt pareil, arrive au plus tard pareil et coûte au plus
-    autant (ex. Max + TER payant alors qu'un TGV Max direct part après et arrive avant)."""
-    def beats(y, x):
-        no_worse = y["_dep"] >= x["_dep"] and y["_arr"] <= x["_arr"] and y["cost_eur"] <= x["cost_eur"] \
+    autant (ex. Max + TER payant alors qu'un TGV Max direct part après et arrive avant).
+    Une gare annexe compte son temps d'accès : un train depuis Massy ne cache pas celui de Montparnasse
+    parti 10 min plus tôt. Une nuit en gare ne se justifie pas pour quelques centimes d'économie."""
+    def ends(it):
+        a, b = it["legs"][0], it["legs"][-1]
+        return (it["_dep"] - _access_min(a.get("from") or a.get("o")),
+                it["_arr"] + _access_min(b.get("to") or b.get("d")))
+
+    span = [ends(it) for it in itins]
+
+    def beats(j, i):
+        y, x = itins[j], itins[i]
+        (yd, ya), (xd, xa) = span[j], span[i]
+        tol = 2 if x.get("nocturnal") and not y.get("nocturnal") else 0
+        no_worse = yd >= xd and ya <= xa and y["cost_eur"] <= x["cost_eur"] + tol \
             and len(y["legs"]) <= len(x["legs"])
-        better = y["_dep"] > x["_dep"] or y["_arr"] < x["_arr"] or y["cost_eur"] < x["cost_eur"] \
-            or len(y["legs"]) < len(x["legs"])
+        better = yd > xd or ya < xa or y["cost_eur"] < x["cost_eur"] or len(y["legs"]) < len(x["legs"]) \
+            or bool(tol)
         return no_worse and better
 
-    return [x for x in itins if not any(beats(y, x) for y in itins)]
+    n = len(itins)
+    return [x for i, x in enumerate(itins) if not any(beats(j, i) for j in range(n) if j != i)]
 
 
 def detour_ratio(origins, relay, fgeo, dest, direct_km):
@@ -285,7 +306,7 @@ def max_legs(path, date, geo):
     legs = [max_leg(e, date, geo) for e in path]
     for prev, e, leg in zip(path, path[1:], legs[1:]):
         if e["o"] != prev["d"]:
-            leg["change_note"] = core.twin_note(prev["d"], e["o"])
+            leg["change_note"] = core.twin_note(prev["d"], e["o"], prev, e)
     return legs
 
 
@@ -453,6 +474,9 @@ def search_one_day(src, dst, date, opts):
         if ter_dep < ready - 1:
             ter_dep += 1440
         ter_arr = ter_dep + jr["duration_min"]
+        if jr.get("arrival"):          # l'heure affichée fait foi (la durée de l'API compte la marche)
+            gap = (core.hhmm_to_min(jr["arrival"]) - tdep) % 1440
+            ter_arr = ter_dep + gap + 1440 * ((jr["duration_min"] - gap + 60) // 1440)
         price = pricing.estimate(jr["sections"], prefs)
         dest_name = nice_place(dest_geo["name"])
         legs.append({
@@ -496,10 +520,17 @@ def search_one_day(src, dst, date, opts):
     fare = direct_fare(tuple(origins), tuple(targets))
     if fare:
         out = [it for it in out if not it["paid"] or it["cost_eur"] <= config.TER_MAX_SHARE_OF_FARE * fare]
-    # trajets 100 % Max mais très détournés (Paris → Avignon → Lyon) : repliés sous « afficher plus »
+    # trajets très détournés (Paris → Avignon → Lyon) : repliés sous « afficher plus » ; payants et
+    # vraiment absurdes (Lille → Paris → Arras pour Amiens) : retirés
+    kept = []
     for it in out:
-        if not it["paid"] and path_detour(it["legs"]) > config.DETOUR_MAX:
+        r = path_detour(it["legs"])
+        if it["paid"] and r > config.DETOUR_MAX_PAID:
+            continue
+        if r > config.DETOUR_MAX:
             it["detour"] = True
+        kept.append(it)
+    out = kept
     # depuis / vers une gare TGV d'Île-de-France quand on a cherché « Paris » : comment y aller
     for it in out:
         first, last = it["legs"][0], it["legs"][-1]
@@ -576,6 +607,13 @@ class IPBudget:
 
 
 IP_BUDGET = IPBudget()
+PARIS_TZ = ZoneInfo("Europe/Paris")
+
+
+def past_min(day):
+    """Aujourd'hui (heure de Paris) : minutes déjà écoulées, pour ne pas proposer un train parti."""
+    now = datetime.now(PARIS_TZ)
+    return now.hour * 60 + now.minute if day == now.strftime("%Y-%m-%d") else 0
 
 
 def check_date(d):
@@ -624,7 +662,7 @@ def do_search(qs):
 
     def one(day):
         opts = dict(base,
-                    min_dep=start_min if (day == fd and start_min is not None) else 0,
+                    min_dep=max(past_min(day), start_min if (day == fd and start_min is not None) else 0),
                     max_dep=end_min if (day == td and end_min is not None) else 1440)
         try:
             r = search_one_day(src, dst, day, opts)
@@ -651,21 +689,29 @@ def do_explore(qs):
     edges = [] if senior_weekend(prefs, date) else edges_for(date)
     stations = {e["o"] for e in edges} | {e["d"] for e in edges}
     origins = core.resolve_city(src, stations)
-    best = core.reachable(edges, origins, max_conn=_int(qs, "maxconn", 1, 0, 2))
+    best = core.reachable(edges, origins, max_conn=_int(qs, "maxconn", 1, 0, 2), min_dep=past_min(date))
     geo = geocode_many(list(origins) + list(best))
     og = next((geo[o] for o in origins if geo.get(o)), None)
+    # la ville de départ elle-même (Lyon depuis Saint-Exupéry, Massy depuis Paris) n'est pas une destination
+    home = set(origins) | {t for o in origins for t, _, _ in core.TWINS.get(o, ())}
     dests = []
     for label, (nlegs, path) in best.items():
         g = geo.get(label)
-        if not g:
+        if not g or label in home:
             continue
+        pts = [geo.get(path[0]["o"])] + [geo.get(e["d"]) for e in path]
+        if nlegs > 1 and all(pts):               # pas de détour absurde (Bourg-en-Bresse via Roissy)
+            run = sum(core.haversine_km(a["lat"], a["lon"], b["lat"], b["lon"]) for a, b in zip(pts, pts[1:]))
+            if run > config.DETOUR_MAX_EXPLORE * max(1.0, core.haversine_km(
+                    pts[0]["lat"], pts[0]["lon"], g["lat"], g["lon"])):
+                continue
         dests.append({
             "label": label, "name": display_name(label, g), "lat": g["lat"], "lon": g["lon"],
             "nconn": nlegs - 1, "dep": core.min_to_hhmm(path[0]["dep"]),
             "arr": core.min_to_hhmm(path[-1]["arr"]), "arr_day": path[-1]["arr"] // 1440,
             "via": [display_name(e["d"], geo.get(e["d"])) for e in path[:-1]],
         })
-    dests.sort(key=lambda x: (x["nconn"], x["name"]))
+    dests.sort(key=lambda x: (x["nconn"], core.normalize(x["name"])))
     res = {
         "mode": "explore", "date": date, "weekday": core.weekday(date),
         "origin": {"label": origins[0] if origins else src,
@@ -740,7 +786,7 @@ def do_calendar(qs):
             return {"date": date, "n": None}
         stations = {e["o"] for e in edges} | {e["d"] for e in edges}
         paths = core.search(edges, core.resolve_city(src, stations), core.resolve_city(dst, stations),
-                            max_conn=maxconn, max_results=200)
+                            max_conn=maxconn, max_results=200, min_dep=past_min(date))
         if not nights:
             paths = [p for p in paths if not path_nocturnal(p)]
         its = drop_dominated([{"_dep": p[0]["dep"], "_arr": p[-1]["arr"], "cost_eur": 0, "legs": p} for p in paths])
@@ -1032,10 +1078,14 @@ ROUTES = {
 # Réponses déjà calculées : plusieurs visiteurs qui cherchent la même chose ne coûtent qu'un calcul.
 # Durées courtes : les places Max changent une fois par jour, les horaires la nuit.
 CACHE_TTL = {"/api/insights": 1800, "/api/search": 900, "/api/calendar": 3600, "/api/value": 3600, "/api/trends": 3600,
-
-             "/api/explore": 1800, "/api/ideas": 3600}
+             "/api/explore": 1800, "/api/ideas": 3600, "/api/stations": 300, "/api/meta": 30}
+# Calculs lourds (CPU) : au plus 2 à la fois. Sur un petit serveur, 10 calculs en parallèle finissent
+# tous lentement ; en file d'attente, chacun finit vite et les requêtes légères restent fluides.
+HEAVY = {"/api/search", "/api/calendar", "/api/value", "/api/trends", "/api/insights", "/api/ideas"}
+_HEAVY_SLOTS = threading.BoundedSemaphore(2)
 _RESP = {}
 _RESP_LOCK = threading.Lock()
+_INFLIGHT = {}            # requête en cours de calcul -> verrou (les suivantes identiques attendent)
 
 
 def cached(path, fn, qs):
@@ -1043,20 +1093,34 @@ def cached(path, fn, qs):
     if not ttl:
         return fn(qs)
     key = (path, tuple(sorted((k, tuple(v)) for k, v in qs.items() if k != "_ip")))
-    now = time.time()
     with _RESP_LOCK:
         hit = _RESP.get(key)
-    if hit and now - hit[0] < ttl:
-        return hit[1]
-    res = fn(qs)
-    if isinstance(res, dict) and res.pop("_nocache", False):
-        return res                     # réponse bridée (budget API) : jamais servie à d'autres
-    with _RESP_LOCK:
-        if len(_RESP) > 3000:
-            for k in [k for k, (t, _) in _RESP.items() if now - t > 900] or list(_RESP)[:1500]:
-                _RESP.pop(k, None)
-        _RESP[key] = (now, res)
-    return res
+        if hit and time.time() - hit[0] < ttl:
+            return hit[1]
+        flight = _INFLIGHT.setdefault(key, threading.Lock())
+    with flight:                       # la même requête déjà en calcul : on attend son résultat
+        with _RESP_LOCK:
+            hit = _RESP.get(key)
+        if hit and time.time() - hit[0] < ttl:
+            return hit[1]
+        try:
+            if path in HEAVY:
+                with _HEAVY_SLOTS:
+                    res = fn(qs)
+            else:
+                res = fn(qs)
+        finally:
+            with _RESP_LOCK:
+                _INFLIGHT.pop(key, None)
+        if isinstance(res, dict) and res.pop("_nocache", False):
+            return res                 # réponse bridée (budget API) : jamais servie à d'autres
+        now = time.time()
+        with _RESP_LOCK:
+            if len(_RESP) > 3000:
+                for k in [k for k, (t, _) in _RESP.items() if now - t > 900] or list(_RESP)[:1500]:
+                    _RESP.pop(k, None)
+            _RESP[key] = (now, res)
+        return res
 
 
 class RateLimiter:

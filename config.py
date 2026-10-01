@@ -44,7 +44,7 @@ MAX_RANGE_DAYS = 8               # l'interface interroge jour par jour
 RATE_LIMITS = {               # groupe -> (requêtes autorisées, fenêtre en secondes) par adresse IP
     "search": (60, 60),
     "explore": (20, 60),
-    "stations": (60, 60),
+    "stations": (120, 60),
     "nearest": (30, 60),
     "calendar": (12, 60),
     "feedback": (5, 600),
@@ -72,5 +72,7 @@ PROXY_HOPS = int(os.environ.get("PROXY_HOPS", "1"))
 CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip()
 
 # Cohérence des trajets proposés
-DETOUR_MAX = 1.4                 # gare-relais : au plus 40 % de distance en plus que le trajet direct
+DETOUR_MAX_EXPLORE = 1.6         # Explorer : destination via une correspondance trop détournée, masquée
+DETOUR_MAX_PAID = 2.0            # trajet avec TER payant plus détourné que ça : retiré (pas juste replié)
+DETOUR_MAX = 1.4                # gare-relais : au plus 40 % de distance en plus que le trajet direct
 TER_MAX_SHARE_OF_FARE = 0.6      # Max + TER retiré s'il coûte plus de 60 % d'un billet direct habituel

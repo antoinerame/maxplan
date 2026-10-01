@@ -422,7 +422,7 @@
         b.innerHTML = `${esc(p.label(v))}<i>${v ? '✓' : '+'}</i>`;
         b.title = v ? 'Activé, toucher pour désactiver' : 'Désactivé, toucher pour activer';
       } else {
-        b.setAttribute('aria-pressed', 'false');
+        b.removeAttribute('aria-pressed');          // bouton à valeurs multiples, pas un interrupteur
         b.innerHTML = `${esc(p.label(v))}<i>↻</i>`;
         b.title = 'Toucher pour changer';
       }
@@ -685,7 +685,7 @@
       nightTotal += nights;
       extraTotal += all.length - main.length;
       if (!openAll) hiddenExtra += all.length - main.length;
-      html += `<section class="day-block"><h3 class="day"><span>${fmtDay(d.date)}</span><small>${d.loading ? 'recherche…' : plural(list.length, 'trajet', 'trajets')}</small></h3>`;
+      html += `<section class="day-block"><h3 class="day"><span>${fmtDay(d.date)}</span><small>${d.loading ? 'recherche…' : plural(list.length, 'trajet', 'trajets') + (all.length > list.length ? ` (+ ${all.length - list.length} plus long${all.length - list.length > 1 ? 's' : ''})` : '')}</small></h3>`;
       if (d.loading) { html += skeleton(2) + '</section>'; continue; }
       if (d.error) { html += `<p class="notice err">${esc(d.error)}</p></section>`; continue; }
       if (d.notice) html += `<p class="notice">${esc(d.notice)}</p>`;
@@ -723,17 +723,20 @@
   function tripRow(it, key) {
     const sel = key === state.sel[state.dir];
     const first = it.legs[0], last = it.legs[it.legs.length - 1];
-    const via = it.legs.slice(0, -1).map(l => l.to_name);
+    // gares de correspondance ; changement de gare (Montparnasse → Roissy) : les deux
+    const via = it.legs.slice(1).map((l, i) => samePlace(it.legs[i].to_name, l.from_name)
+      ? l.from_name : `${it.legs[i].to_name} → ${l.from_name}`);
     const nconn = it.legs.length - 1;
     const nch = it.changes ?? nconn;
     const meta = [fmtDur(it.duration_min), nch ? plural(nch, 'changement', 'changements') : 'direct'];
     if (via.length) meta.push(`via ${via.join(', ')}`);
     const ic = it.legs.some(l => l.free && l.mode === 'Intercités');
     const idf = it.legs[0].access_from || it.legs[it.legs.length - 1].access_to;
+    const idfLabel = /^(Depuis|Vers) Paris /.test(idf || '') ? 'Gare d\'Île-de-France' : 'Gare hors centre';
     const est = it.legs.some(l => l.estimated_schedule);
     const margin = minMargin(it);
     const badges = (ic ? '<em class="b ic">Intercités</em>' : '') + (it.paid ? '<em class="b ter">+ TER</em>' : '')
-      + (idf ? '<em class="b via">Gare d\'Île-de-France</em>' : '')
+      + (idf ? `<em class="b via">${idfLabel}</em>` : '')
 
       + (est ? '<em class="b est">Horaire TER estimé</em>' : '')
       + (margin != null && margin < 30 ? `<em class="b sep" title="Moins de 30 min pour changer de train, et la correspondance n'est pas garantie">Correspondance courte</em>` : '')
@@ -772,7 +775,8 @@
         const wait = absMin(l.dep, l.dep_day) - absMin(prev.arr, prev.arr_day);
         const move = !samePlace(prev.to_name, l.from_name)
           ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${l.change_note ? ` (${esc(l.change_note)})` : /^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? ' (métro ou RER)' : ''}</em>` : '';
-        sub = `<small>arrivée ${esc(prev.arr)} · correspondance ${fmtDur(Math.max(0, wait))}, <span class="${wait < 30 ? 'short' : ''}">non garantie${wait < 30 ? ' (marge courte)' : ''}</span></small>${move}`;
+        const at = samePlace(prev.to_name, l.from_name) ? '' : ` à ${esc(prev.to_name)}`;
+        sub = `<small>arrivée ${esc(prev.arr)}${at} · correspondance ${fmtDur(Math.max(0, wait))}, <span class="${wait < 30 ? 'short' : ''}">non garantie${wait < 30 ? ' (marge courte)' : ''}</span></small>${move}`;
       }
       const access = i === 0 && l.access_from ? `<em class="move">${ICON.walk}${esc(l.access_from)}</em>` : '';
       h += `<li class="stop${i === 0 ? ' first' : ''}"><span class="s-time">${esc(l.dep)}${l.dep_day ? `<sup>+${l.dep_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(l.from_name)}${sub}${access}</span></li>`;
@@ -1068,7 +1072,7 @@
       return;
     }
     const head = t => `<div class="fav-od"><b>${esc(t.from.name)}</b><i>⇄</i><b>${esc(t.to.name)}</b>
-        <button class="fav-del" type="button" data-v-del="${vTrips.indexOf(t)}" aria-label="Retirer ce trajet">${ICON.trash}</button></div>
+        <button class="fav-del" type="button" data-v-del="${vTrips.indexOf(t)}" aria-label="Retirer le trajet ${esc(t.from.name)} ⇄ ${esc(t.to.name)}">${ICON.trash}</button></div>
       <p class="v-sub">${plural(t.n, 'aller-retour', 'allers-retours')} par mois${DAYS_TXT[t.days]}</p>`;
     box.innerHTML = `<div class="value-list">${vTrips.map(t => `<article class="fav vcard">${head(t)}<p class="cal-msg">Calcul en cours…</p></article>`).join('')}</div>`;
     const res = await Promise.all(vTrips.map(loadValue));
@@ -1093,8 +1097,8 @@
           <span>${k ? 'Retour' : 'Aller'} à 0 €</span><b>${l.days ? pct(p[k]) : '?'}</b>
           <i><em style="width:${Math.round(p[k] * 100)}%"></em><em class="ter" style="width:${Math.round(pt[k] * 100)}%"></em></i>
           <small>${useHist
-            ? `${l.history.days_with_free} jours sur ${l.history.days}${DAYS_TXT[t.days]} depuis le ${esc(fmtShort(l.history.since))} (historique, trains directs)`
-            : `${l.free_days} jours sur ${l.days}${DAYS_TXT[t.days]} à venir · ${nf.format(l.avg_trains)} train${l.avg_trains >= 2 ? 's' : ''}/jour en moyenne`}</small>
+            ? `${l.history.days_with_free} ${l.history.days_with_free > 1 ? 'jours' : 'jour'} sur ${l.history.days}${DAYS_TXT[t.days]} depuis le ${esc(fmtShort(l.history.since))} (historique, trains directs)`
+            : `${l.free_days} ${l.free_days > 1 ? 'jours' : 'jour'} sur ${l.days}${DAYS_TXT[t.days]} à venir · ${nf.format(l.avg_trains)} train${l.avg_trains >= 2 ? 's' : ''}/jour en moyenne`}</small>
           ${pt[k] ? `<small class="v-ter">+ ${pct(pt[k])} des jours en Max jusqu'à ${esc(l.ter.via)} puis TER : ≈ ${nf.format(l.ter.price)} € seulement</small>` : ''}</div>`).join('')}</div>`;
       if (price.some(x => !x)) {
         missing++;
@@ -1237,13 +1241,22 @@
     store.set('profileSet', true);
     renderProfileChip();
     toast('Profil enregistré.');
-    if (state.tab === 'search' && state.days.length) runSearch();
-    else if (state.tab === 'explore' && state.explore) runExplore();
+    // les autres onglets déjà affichés seront recalculés quand on y reviendra
+    state.stale = { search: !!state.days.length, explore: !!state.explore };
+    rerunStale(state.tab);
+    if (state.tab === 'value') renderValue();
   }
 
   /* ================================================================== onglets */
+  function rerunStale(t) {
+    if (!state.stale?.[t]) return;
+    state.stale[t] = false;
+    if (t === 'search') runSearch();
+    else if (t === 'explore') runExplore();
+  }
   function showTab(t) {
     state.tab = t;
+    rerunStale(t);
     $$('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
     $(`.tab[data-tab="${t}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });   // onglet visible sur petit écran
     for (const v of ['search', 'explore', 'favs', 'value', 'infos']) $('#view-' + v).hidden = v !== t;
@@ -1428,7 +1441,7 @@
   function freshShort() {
     const d = state.meta?.updates?.last ? new Date(state.meta.updates.last) : null;
     if (!d || isNaN(d)) return 'ce matin';
-    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
     return isoOf(d) === todayISO() ? `à ${hm}` : `le ${fmtShort(isoOf(d))}`;
   }
 
@@ -1437,7 +1450,7 @@
   function freshText() {
     const d = state.meta?.updates?.last ? new Date(state.meta.updates.last) : null;
     if (!d || isNaN(d)) return 'Places Max relevées une fois par jour par la SNCF.';
-    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
     return isoOf(d) === todayISO() ? `Places Max relevées aujourd'hui à ${hm}.` : `Places Max relevées le ${fmtShort(isoOf(d))} à ${hm}.`;
   }
 
@@ -1445,7 +1458,7 @@
   function updateText(u) {
     const d = u?.last ? new Date(u.last) : null;
     if (!d || isNaN(d)) return 'mises à jour chaque jour';
-    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+    const hm = `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
     const same = isoOf(d) === todayISO();
     return same ? `mises à jour aujourd'hui à ${hm}` : `mises à jour le ${fmtShort(isoOf(d))} à ${hm}`;
   }
@@ -1469,7 +1482,7 @@
       for (const s of ['#s-fd', '#s-td', '#r-fd', '#r-td', '#e-date']) { $(s).min = start; $(s).max = end; }
     }
     setDates(...quickRange('tomorrow'));
-    $('#e-date').value = clampDate(todayISO());
+    $('#e-date').value = clampDate(addDays(todayISO(), 1));      // comme Itinéraire : demain
     setTimeout(() => renderIdeas(true), 0);   // après la restauration de la dernière gare de départ
 
 

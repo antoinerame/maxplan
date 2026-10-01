@@ -11,6 +11,7 @@ services:
       MAXFINDER_HOST: "0.0.0.0"
       PORT: "8765"
       DATA_DIR: "/data"
+      MALLOC_ARENA_MAX: "2"   # moins de mémoire gaspillée par les nombreux threads
     env_file:
       - .env            # fournit SNCF_TOKEN (clé API Navitia)
     volumes:

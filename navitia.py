@@ -28,6 +28,9 @@ LABEL_OVERRIDES = {
     "LYON (intramuros)": "Lyon Part Dieu",
     "LILLE (intramuros)": "Lille Europe",
     "AEROPORT ROISSY CDG 2 TGV": "Aéroport Charles de Gaulle 2 TGV",
+    "VALENCE TGV AUVERGNE RHONE ALPES": "Valence TGV",
+    "MULHOUSE VILLE": "Mulhouse",
+    "BOULOGNE VILLE": "Boulogne-sur-Mer",
 }
 
 
@@ -41,6 +44,12 @@ def _clean(label):
 def _fold(s):
     import unicodedata
     return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+
+
+def _norm(s):
+    """Nom replié pour comparer : sans accents ni tirets, « saint » -> « st »."""
+    s = re.sub(r"[^a-z0-9]+", " ", _fold(s)).strip()
+    return re.sub(r"\bsainte?\b", lambda m: "ste" if m.group(0) == "sainte" else "st", s)
 
 
 def _variants(q):
@@ -67,6 +76,12 @@ class Navitia:
                 self._cache = {}
         for k in ("AEROPORT ROISSY CDG 2 TGV",):   # géocodages corrigés depuis : on les refait
             if (self._cache.get(k) or {}).get("name", "").find("2") < 0:
+                self._cache.pop(k, None)
+        for k in ("NICE VILLE", "METZ VILLE", "MACON VILLE", "DIJON VILLE", "BOULOGNE VILLE",
+                  "MULHOUSE VILLE"):
+            name = _norm((self._cache.get(k) or {}).get("name", ""))
+            if name and (not name.startswith(_norm(k.split()[0])) or "mairie" in name
+                         or "tintelleries" in name):
                 self._cache.pop(k, None)
         self._miss = {}   # échecs récents (mémoire seulement) : libellé -> horodatage
         self._places = {}  # autocomplétion : requête -> (horodatage, résultats)
@@ -147,9 +162,11 @@ class Navitia:
     # -- Géocodage ---------------------------------------------------------
     def _lookup(self, q):
         """Meilleure gare pour q. Navitia classe « Paris - Gare de Lyon » avant « Lyon Part Dieu »
-        quand on cherche « Lyon » : on préfère les gares dont la ville ou le nom commence par q."""
+        quand on cherche « Lyon », et propose parfois « Calais Ville » pour « Nice Ville » : on ne
+        garde que les gares dont le nom ou la ville commence par la ville cherchée."""
         d = self._get("/coverage/sncf/places?type%5B%5D=stop_area&count=8&q=" + urllib.parse.quote(q))
-        fq = _fold(q)
+        fq = _norm(q)
+        first = fq.split()[0] if fq.split() else ""
         best = None
         for rank, p in enumerate(d.get("places", []) if isinstance(d, dict) else []):
             coord = (p.get("stop_area") or {}).get("coord") or {}
@@ -157,8 +174,17 @@ class Navitia:
                 continue
             name = p.get("name", q)
             m = re.search(r"\(([^)]*)\)\s*$", name)
-            city, fname = _fold(m.group(1) if m else ""), _fold(name)
-            score = 0 if (fname.startswith(fq) or city == fq) else 1 if city.startswith(fq) else 2
+            city, fname = _norm(m.group(1) if m else ""), _norm(name)
+            core = _norm(re.sub(r"\s*\([^)]*\)\s*$", "", name))
+            if fname.startswith(fq) or city == fq:
+                score = 0
+            elif city.startswith(fq) or (core and fq.startswith(core)):
+                score = 1                      # « Mulhouse » pour « Mulhouse Ville »
+            elif first and any(x.startswith(first) or x.replace(" ", "").startswith(first)
+                               for x in (core, city)):          # « Mont-Dauphin » ~ « Montdauphin »
+                score = 2
+            else:
+                continue                       # autre ville (« Calais Ville » pour « Nice Ville »)
             if best is None or (score, rank) < best[0]:
                 best = ((score, rank), {"id": p["id"], "name": name,
                                         "lat": float(coord["lat"]), "lon": float(coord["lon"])})

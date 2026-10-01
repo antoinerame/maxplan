@@ -44,6 +44,7 @@ F_PICK, F_DROP = 1, 2
 _lock = threading.Lock()
 _data = None
 _days = {}                # date AAAAMMJJ -> (connexions triées, heures de départ)
+_by_cell = {}             # date AAAAMMJJ -> (connexions, {maille: indices des tronçons})
 _memo = {}                # trajets déjà calculés
 _day_locks = {}           # une seule construction à la fois par journée
 DAYS_CACHED = 3           # journées gardées en mémoire (~15 Mo chacune ; relues du disque en ~30 ms)
@@ -314,6 +315,7 @@ def load():
            "stamp": _stamp(loaded)}
     with _lock:
         _data, _days = new, {}
+        _by_cell.clear()
         _memo.clear()
     return len(b.trips), len(loaded)
 
@@ -424,7 +426,28 @@ def _remember(d, res):
             old = next(iter(_days))
             _days.pop(old)
             _day_locks.pop(old, None)
+            _by_cell.pop(old, None)
     return res
+
+
+def _cell_index(ymd, conns):
+    """Tronçons d'une journée rangés par maille géographique de départ (indices croissants) : une
+    recherche ne lit que les mailles entre le départ et l'arrivée au lieu de toute la France."""
+    d = int(ymd.replace("-", ""))
+    hit = _by_cell.get(d)
+    if hit is not None and hit[0] is conns:
+        return hit[1]
+    cell_of, m = _data["cell_of"], {}
+    for i, a in enumerate(conns[2]):
+        c = cell_of[a]
+        x = m.get(c)
+        if x is None:
+            x = m[c] = array("i")
+        x.append(i)
+    with _lock:
+        if d in _days:                            # journée encore en cache : on garde son index
+            _by_cell[d] = (conns, m)
+    return m
 
 
 def precompute():
@@ -476,13 +499,14 @@ def _build_day(d, ymd, data):
     return cols, cols[0]
 
 
-def _csa(conns, deps, src, dst, t0, max_legs, stop_at=None, cells=None):
+def _csa(conns, idx, src, dst, t0, max_legs, stop_at=None):
     """Arrivée au plus tôt src -> dst en au plus max_legs véhicules, correspondances à pied comprises.
     Renvoie les tronçons empruntés [(circulation, rang montée, rang descente)] ou None.
-    cells : mailles géographiques utiles (les départs ailleurs sont ignorés d'emblée)."""
+    idx : indices (croissants, donc par heure de départ) des tronçons utiles : ceux des mailles
+    géographiques entre le départ et l'arrivée, à partir de l'heure de départ."""
     INF = 10 ** 9
     end = min(t0 + 2 * HORIZON, stop_at if stop_at is not None else INF)
-    trips, foot, cell_of = _data["trips"], _data["foot"], _data["cell_of"]
+    trips, foot = _data["trips"], _data["foot"]
     best, legs_at, via, boarded = {src: t0}, {src: 0}, {}, {}
     bd = [INF]                    # meilleure arrivée connue à destination (évite une recherche par tronçon)
 
@@ -496,15 +520,11 @@ def _csa(conns, deps, src, dst, t0, max_legs, stop_at=None, cells=None):
 
     walk(src)
     C_dep, C_arr, C_a, C_b, C_ti, C_k = conns
-    for i in range(bisect.bisect_left(deps, t0), len(deps)):
+    for i in idx:
         dep = C_dep[i]
-        a = C_a[i]
         if dep >= end or bd[0] <= dep:
             break
-        if cells is not None and cell_of[a] not in cells:
-            continue
-        arr, b, ti, k = C_arr[i], C_b[i], C_ti[i], C_k[i]
-
+        a, arr, b, ti, k = C_a[i], C_arr[i], C_b[i], C_ti[i], C_k[i]
         st = trips[ti][3]
         if ti not in boarded:
             if dep > t0 + HORIZON or not st[4 * k + 3] & F_PICK:
@@ -553,11 +573,18 @@ def journey(from_id, to_id, ymd, hhmm, max_transfers=3):
     t0 = int(h) * 60 + int(m)
     conns, deps = _connections(ymd)
     cells = _box_cells(_data["areas"][src], _data["areas"][dst])
+    lo, hi = bisect.bisect_left(deps, t0), bisect.bisect_left(deps, t0 + 2 * HORIZON)
+    by_cell, parts = _cell_index(ymd, conns), []
+    for c in cells:
+        x = by_cell.get(c)
+        if x:
+            parts.append(x[bisect.bisect_left(x, lo):bisect.bisect_left(x, hi)])
+    idx = sorted(i for x in parts for i in x)       # calculé une fois pour les 4 passes
     # on ne change de véhicule que si ça fait vraiment arriver plus tôt (20 min par changement) ;
     # chaque passe ne cherche que ce qui peut battre la meilleure solution déjà trouvée
     best = None
     for legs in range(1, max_transfers + 2):
-        path = _csa(conns, deps, src, dst, t0, legs, best[0] - 20 * (legs - 1) if best else None, cells)
+        path = _csa(conns, idx, src, dst, t0, legs, best[0] - 20 * (legs - 1) if best else None)
 
         if path:
             st = _data["trips"][path[-1][0]][3]
@@ -566,7 +593,7 @@ def journey(from_id, to_id, ymd, hhmm, max_transfers=3):
                 best = (score, path)
     res = _format(best[1]) if best else None
     with _lock:
-        if len(_memo) > 20000:
+        if len(_memo) > 6000:            # borné : chaque trajet garde ses coordonnées
             _memo.clear()
         _memo[key] = res
     return res
