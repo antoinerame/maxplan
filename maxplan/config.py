@@ -33,7 +33,7 @@ MIN_CONNECTION_MIN = 15          # temps de correspondance mini (gare simple)
 MIN_CONNECTION_INTRAMUROS = 30   # idem pour une ville multi-gares "(intramuros)"
 MAX_LAYOVER_MIN = 4 * 60         # attente max en correspondance
 MAX_TOTAL_MIN = 16 * 60          # durée totale max d'un itinéraire
-TER_MAX_TAIL_MIN = 4 * 60        # durée max d'un segment TER de complément
+TER_MAX_TAIL_MIN = 5 * 60        # durée max d'un segment TER de complément (Valence → Briançon ≈ 4 h 30)
 TER_MAX_DISTANCE_KM = 320        # ne tente un pont TER que vers une gare frontière < cette distance
 TER_CANDIDATES = 7               # nb de gares frontières les plus proches testées en TER
 
@@ -55,6 +55,9 @@ RATE_LIMITS = {               # groupe -> (requêtes autorisées, fenêtre en se
 
 # Complément TER : nombre d'arrivées Max essayées par gare-relais (la plus proche d'abord), espacées d'au moins…
 TER_ARRIVALS_PER_RELAY = (5, 3, 2, 1)
+ORIGIN_TER_KM = 150             # TER au départ (ville sans train Max) : gares Max à moins de 150 km
+ORIGIN_TER_KM_MAX_CITY = 70     # depuis une ville qui a des trains Max : grandes gares toutes proches
+ORIGIN_TER_CANDIDATES = 4
 TER_ARRIVAL_SPACING_MIN = 45
 
 # Page privée des retours visiteurs : /admin/retours?token=<FEEDBACK_TOKEN> (désactivée si vide)

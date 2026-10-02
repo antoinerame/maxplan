@@ -5,7 +5,9 @@ import bisect
 import threading
 
 from maxplan import config
-from maxplan.moteur.gares import TWINS, transfer_min, twin_change
+from maxplan.moteur.gares import PARIS_ANNEX, TWINS, city_station, transfer_min
+
+PARIS = "PARIS (intramuros)"
 
 
 _IDX = {}            # id(liste de trains du jour) -> (liste, index) : construit une fois par jour
@@ -58,9 +60,16 @@ def _departures(idx, station, path, lo, hi):
     for e in _window(idx, station, arrived, hi):
         yield e, None                        # attente mini calculée seulement si besoin (coûteuse)
     for other, mins, _ in TWINS.get(station, ()):
-        paris = "PARIS (intramuros)" in (station, other)
-        for e in _window(idx, other, arrived, hi):
-            yield e, (twin_change(station, other, path[-1], e)[0] if paris else mins)
+        if station == PARIS:                 # arrivé à Paris : dépend de la vraie gare d'arrivée (une fois)
+            m = PARIS_ANNEX.get((city_station(station, path[-1]), other), (mins,))[0]
+            for e in _window(idx, other, arrived, hi):
+                yield e, m
+        elif other == PARIS:                 # repartir de Paris : dépend de la gare de départ du train
+            for e in _window(idx, other, arrived, hi):
+                yield e, PARIS_ANNEX.get((city_station(other, e), station), (mins,))[0]
+        else:
+            for e in _window(idx, other, arrived, hi):
+                yield e, mins
 
 
 def night_overlap(start, end):
@@ -105,7 +114,8 @@ def search(edges, origins, targets, max_conn=3, max_results=40, min_dep=0, max_d
         left = max_conn - len(path)            # trains encore possibles après celui-ci
         lvl = levels[max(0, left)]
         for e, need in _departures(idx, station, path, min_dep, max_dep):
-            if e["d"] in visited or e["d"] not in lvl:
+            # pas de retour par une gare déjà passée en changeant de gare (Paris → Chessy → Roissy → Paris)
+            if e["d"] in visited or e["d"] not in lvl or (e["o"] != station and e["o"] in visited):
                 continue
             if path:
                 if need is None:
@@ -147,7 +157,7 @@ def reachable(edges, origins, max_conn=1, min_dep=0, max_dep=1440):
 
     def dfs(station, arrived_at, path, visited):
         for e, need in _departures(idx, station, path, min_dep, max_dep):
-            if e["d"] in visited:
+            if e["d"] in visited or (e["o"] != station and e["o"] in visited):
                 continue
             if path:
                 if need is None:
@@ -156,7 +166,8 @@ def reachable(edges, origins, max_conn=1, min_dep=0, max_dep=1440):
                     continue
             newpath = path + [e]
             cur = best.get(e["d"])
-            if cur is None or len(newpath) < cur[0]:
+            # moins de trains d'abord, puis l'arrivée la plus tôt (Explorer : l'horaire le plus utile)
+            if cur is None or len(newpath) < cur[0] or (len(newpath) == cur[0] and e["arr"] < cur[1][-1]["arr"]):
                 best[e["d"]] = (len(newpath), newpath)
             if len(newpath) <= max_conn:
                 dfs(e["d"], e["arr"], newpath, visited | {e["d"], e["o"]})

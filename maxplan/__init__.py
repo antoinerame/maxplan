@@ -8,4 +8,4 @@ Organisation du code :
   taches    tâches de fond : préchauffage, historique quotidien des places Max
 """
 
-VERSION = "3.7"
+VERSION = "3.8"

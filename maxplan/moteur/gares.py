@@ -40,7 +40,7 @@ ANNEX = {
     "MASSY PALAISEAU": ("PARIS (intramuros)", "Paris", "RER B ou C, environ 30 min, ticket 2,50 €"),
     "AEROPORT ROISSY CDG 2 TGV": ("PARIS (intramuros)", "Paris", "RER B, environ 35 min depuis Gare du Nord, billet aéroport ≈ 14 €"),
     "VERSAILLES CHANTIERS": ("PARIS (intramuros)", "Paris", "train ou RER C, environ 20 min depuis Montparnasse, ticket 2,50 €"),
-    "LYON ST EXUPERY TGV.": ("LYON (intramuros)", "Lyon", "Rhônexpress depuis Lyon Part-Dieu, environ 30 min, ≈ 17 €"),
+    "LYON ST EXUPERY TGV.": ("LYON (intramuros)", "Lyon", "Rhônexpress entre Lyon Part-Dieu et l'aéroport, environ 30 min, ≈ 17 €"),
     "AVIGNON TGV": ("AVIGNON CENTRE", "Avignon centre", "navette TER, environ 5 min, ≈ 3 €"),
     "NIMES PONT DU GARD": ("NIMES CENTRE", "Nîmes centre", "navette TER, environ 10 min, ≈ 3 €"),
     "MONTPELLIER SUD DE FRANCE": ("MONTPELLIER SAINT ROCH", "Montpellier centre", "navette ou tram, environ 20 min, ≈ 1,60 €"),
@@ -92,26 +92,26 @@ PARIS_ANNEX = {
     ("Paris Bercy", "AEROPORT ROISSY CDG 2 TGV"): (70, f"métro et RER B, environ 55 min, {_CDG}"),
     ("Paris Austerlitz", "AEROPORT ROISSY CDG 2 TGV"): (75, f"RER C et RER B, environ 1 h, {_CDG}"),
     ("Paris Montparnasse", "AEROPORT ROISSY CDG 2 TGV"): (80, f"métro 4 et RER B, environ 1 h, {_CDG}"),
-    ("Paris Gare de Lyon", "MARNE LA VALLEE CHESSY"): (55, "RER A direct, environ 40 min"),
-    ("Paris Bercy", "MARNE LA VALLEE CHESSY"): (60, "RER A et 10 min à pied entre Bercy et Gare de Lyon, environ 45 min"),
-    ("Paris Austerlitz", "MARNE LA VALLEE CHESSY"): (65, "métro et RER A, environ 50 min"),
-    ("Paris Nord", "MARNE LA VALLEE CHESSY"): (70, "RER B ou D et RER A, environ 55 min"),
-    ("Paris Est", "MARNE LA VALLEE CHESSY"): (75, "métro et RER A, environ 1 h"),
-    ("Paris Montparnasse", "MARNE LA VALLEE CHESSY"): (80, "métro et RER A, environ 1 h"),
-    ("Paris Austerlitz", "MASSY TGV"): (55, "RER C direct, environ 40 min"),
-    ("Paris Nord", "MASSY TGV"): (55, "RER B direct, environ 40 min"),
-    ("Paris Montparnasse", "MASSY TGV"): (55, "métro 4 et RER B, environ 40 min"),
-    ("Paris Gare de Lyon", "MASSY TGV"): (65, "RER D et RER B, environ 50 min"),
-    ("Paris Bercy", "MASSY TGV"): (70, "métro et RER B ou C, environ 55 min"),
-    ("Paris Est", "MASSY TGV"): (65, "RER B et 5 min à pied entre Paris Est et Paris Nord, environ 50 min"),
-    ("Paris Montparnasse", "VERSAILLES CHANTIERS"): (40, "train direct, environ 15 min"),
-    ("Paris Austerlitz", "VERSAILLES CHANTIERS"): (60, "RER C direct, environ 45 min"),
+    ("Paris Gare de Lyon", "MARNE LA VALLEE CHESSY"): (55, "RER A direct, environ 40 min, ticket 2,50 €"),
+    ("Paris Bercy", "MARNE LA VALLEE CHESSY"): (60, "RER A et 10 min à pied entre Bercy et Gare de Lyon, environ 45 min, ticket 2,50 €"),
+    ("Paris Austerlitz", "MARNE LA VALLEE CHESSY"): (65, "métro et RER A, environ 50 min, ticket 2,50 €"),
+    ("Paris Nord", "MARNE LA VALLEE CHESSY"): (70, "RER B ou D et RER A, environ 55 min, ticket 2,50 €"),
+    ("Paris Est", "MARNE LA VALLEE CHESSY"): (75, "métro et RER A, environ 1 h, ticket 2,50 €"),
+    ("Paris Montparnasse", "MARNE LA VALLEE CHESSY"): (80, "métro et RER A, environ 1 h, ticket 2,50 €"),
+    ("Paris Austerlitz", "MASSY TGV"): (55, "RER C direct, environ 40 min, ticket 2,50 €"),
+    ("Paris Nord", "MASSY TGV"): (55, "RER B direct, environ 40 min, ticket 2,50 €"),
+    ("Paris Montparnasse", "MASSY TGV"): (55, "métro 4 et RER B, environ 40 min, ticket 2,50 €"),
+    ("Paris Gare de Lyon", "MASSY TGV"): (65, "RER D et RER B, environ 50 min, ticket 2,50 €"),
+    ("Paris Bercy", "MASSY TGV"): (70, "métro et RER B ou C, environ 55 min, ticket 2,50 €"),
+    ("Paris Est", "MASSY TGV"): (65, "RER B et 5 min à pied entre Paris Est et Paris Nord, environ 50 min, ticket 2,50 €"),
+    ("Paris Montparnasse", "VERSAILLES CHANTIERS"): (40, "train direct, environ 15 min, ticket 2,50 €"),
+    ("Paris Austerlitz", "VERSAILLES CHANTIERS"): (60, "RER C direct, environ 45 min, ticket 2,50 €"),
 }
 for (_p, _x), _v in list(PARIS_ANNEX.items()):
     if _x == "MASSY TGV":
         PARIS_ANNEX[(_p, "MASSY PALAISEAU")] = _v
 for _p in ("Paris Nord", "Paris Est", "Paris Gare de Lyon", "Paris Bercy"):
-    PARIS_ANNEX.setdefault((_p, "VERSAILLES CHANTIERS"), (75, "métro et train via Montparnasse, environ 1 h"))
+    PARIS_ANNEX.setdefault((_p, "VERSAILLES CHANTIERS"), (75, "métro et train via Montparnasse, environ 1 h, ticket 2,50 €"))
 
 
 # Changer de gare dans une ville regroupée sous « (intramuros) » : comment faire
@@ -221,14 +221,23 @@ PARIS_COORDS = {"Paris Gare de Lyon": (48.8443, 2.3744), "Paris Montparnasse": (
                 "Paris Austerlitz": (48.8420, 2.3653), "Paris Bercy": (48.8390, 2.3826)}
 PARIS_CHANGE = {frozenset(("Paris Gare de Lyon", "Paris Bercy")): 25, frozenset(("Paris Nord", "Paris Est")): 25,
                 frozenset(("Paris Gare de Lyon", "Paris Austerlitz")): 40,
-                frozenset(("Paris Austerlitz", "Paris Bercy")): 40}
+                frozenset(("Paris Austerlitz", "Paris Bercy")): 40,
+                frozenset(("Paris Gare de Lyon", "Paris Nord")): 40,      # RER D direct, environ 10 min
+                frozenset(("Paris Gare de Lyon", "Paris Est")): 45,
+                frozenset(("Paris Montparnasse", "Paris Nord")): 50,      # métro 4 direct
+                frozenset(("Paris Montparnasse", "Paris Est")): 50}
 PARIS_CHANGE_DEFAULT = 60        # traverser Paris en métro / RER, avec une marge
 
 
 def city_station(label, edge):
-    """Gare réelle d'un train dans une ville multi-gares (Paris seulement : ailleurs, inconnue)."""
+    """Gare réelle d'un train dans une ville multi-gares (Paris seulement : ailleurs, inconnue) : celle des
+    horaires SNCF quand elle est connue (posée sur le train à la lecture de l'open data : un TGV « axe
+    Est » peut arriver Gare de Lyon), sinon déduite de l'axe du train."""
     if label != "PARIS (intramuros)":
         return None
+    real = edge.get("rd") if edge.get("d") == label else edge.get("ro")
+    if real:
+        return real
     axe, ent = edge.get("axe", ""), edge.get("entity", "")
     if axe.startswith("IC") and axe != "IC NUIT":
         return "Paris Bercy" if "CLERMONT" in ent else "Paris Austerlitz"
