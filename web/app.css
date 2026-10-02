@@ -731,7 +731,7 @@ html.busy .loadbar{opacity:1}
 .conn-chip svg{width:14px;height:14px;color:var(--board-yellow)}
 .conn-chip.short{background:rgba(247,144,83,.18);color:var(--board-urgent)}
 .conn-chip.short svg{color:var(--board-urgent)}
-.stop .s-name{padding-bottom:8px}
+.stop .s-name{padding-bottom:0}
 
 /* calendrier : cases dont le prix avec TER est en cours de calcul (vague lumineuse) */
 .cal-day.pricing{background:linear-gradient(100deg,var(--surface-2) 30%,var(--paid-soft) 50%,var(--surface-2) 70%) 0 0/300% 100%;animation:pricing 1.6s linear infinite}
