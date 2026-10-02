@@ -713,7 +713,7 @@ html.busy .loadbar{opacity:1}
 
 /* calendrier : jours sans train à 0 € mais avec un TER ou un car (nombre de trajets + prix le plus bas) */
 .cal-day.paid{background:var(--paid-soft);color:var(--paid-ink)}
-.cal-day.paid span{display:flex;flex-direction:column;align-items:center;gap:1px}
+.cal-day.paid span{display:flex;flex-direction:row;align-items:baseline;justify-content:center;gap:3px;max-width:100%}
 .cal-day.paid span i{font-style:normal;font:700 10.5px/1 var(--font-disp);white-space:nowrap}
 .cal-key-paid{color:var(--paid-ink);font-weight:700}
 
