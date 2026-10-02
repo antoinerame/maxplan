@@ -740,3 +740,10 @@ html.busy .loadbar{opacity:1}
 .ld-track i::after{content:"";position:absolute;top:2px;right:calc(100% + 3px);width:15px;height:calc(100% - 2px);border-radius:2px;background:inherit;opacity:.85}
 .ld-inline .ld-track i::after{width:10px}
 @media (prefers-reduced-motion:reduce){.cal-day.pricing{animation:none}}
+
+/* TER / car en plusieurs tronçons : bouton pour détailler ou regrouper */
+.line>li[hidden]{display:none}
+.ter-tog{display:inline-flex;align-items:center;gap:6px;width:fit-content;margin:2px 0;padding:5px 11px;border:0;border-radius:999px;background:rgba(255,255,255,.1);color:#FFFFFF;font:inherit;font-weight:700;font-size:12.5px;cursor:pointer}
+.ter-tog:hover{background:rgba(255,255,255,.18)}
+.ter-tog svg{width:14px;height:14px;transition:transform .15s}
+.ter-tog.open svg{transform:rotate(180deg)}

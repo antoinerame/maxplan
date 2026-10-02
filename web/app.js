@@ -48,6 +48,7 @@
     board: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M8 4v16"/>'),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
     cal: svg('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
+    chev: svg('<path d="m6 9 6 6 6-6"/>'),
     clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
     walk: svg('<circle cx="13" cy="4.5" r="1.8"/><path d="m9 21 2.5-6 2.5 2v4M8 12l2-4 3.5-.5 2 3.5 2.5 1M11.5 15 10 9.5"/>'),
 
@@ -810,7 +811,8 @@
         h += `<li class="stop">${time(l.dep, l.dep_day)}${node('conn', kind(l))}<span class="s-name">${esc(l.from_name)}<small>départ</small></span></li>`;
       }
       const dur = l.duration_min ?? (absMin(l.arr, l.arr_day) - absMin(l.dep, l.dep_day));
-      if (!l.free && (l.steps || []).length > 1) { h += terStepsHTML(l, node, time); return; }
+      // TER / car en plusieurs tronçons : regroupés, avec une flèche pour les détailler
+      const multi = !l.free && (l.steps || []).length > 1, tk = multi ? terKey(l) : '', open = multi && terOpen.has(tk);
       let body;
       if (l.free) {
         body = `<div class="s-title"><b>${esc(l.mode)} ${esc(l.train)}</b><em class="b free">Max · 0 €</em></div>
@@ -828,11 +830,13 @@
         body = `<div class="s-title"><b>${esc(l.mode)}</b><em class="b paid">${fmtPrice(p.price)}</em></div>
           <div class="s-sub">${fmtDur(dur)}${l.transfers ? ` · ${plural(l.transfers, 'correspondance', 'correspondances')}` : ''}</div>
           ${steps}
+          ${multi ? terToggle(tk, false, `Détailler les ${l.steps.length} trajets`) : ''}
           ${l.estimated_schedule ? '<div class="s-note est">Horaire estimé d\'après la semaine précédente : la SNCF ne l\'a pas encore publié.</div>' : ''}
           <div class="s-note">Estimation : ${p.base ? `tarif normal ≈ ${nf.format(p.base)} € · ` : ''}${esc(p.label || '')}. Les promos affichées par SNCF ne se cumulent pas avec les cartes.</div>`;
       }
-      h += `<li class="leg${l.free ? '' : ' paid'}"><span class="s-time"></span><span class="s-node"></span><div class="s-body">${body}
+      h += `<li class="leg${l.free ? '' : ' paid'}"${multi ? ` data-ter="${esc(tk)}"${open ? ' hidden' : ''}` : ''}><span class="s-time"></span><span class="s-node"></span><div class="s-body">${body}
         <a class="book" href="${esc(l.book_url)}" target="_blank" rel="noopener">Voir ${l.free ? 'ce train' : 'ce trajet'} sur SNCF Connect ${ICON.ext}</a></div></li>`;
+      if (multi) h += terStepsHTML(l, node, time, tk, !open);
     });
     const last = it.legs[it.legs.length - 1];
     h += `<li class="stop last">${time(last.arr, last.arr_day)}${node(kind(last), '')}<span class="s-name">${esc(last.to_name)}<small>arrivée</small>${last.access_to ? `<em class="move">${ICON.walk}${esc(last.access_to)}</em>` : ''}</span></li>`;
@@ -843,9 +847,15 @@
 
   }
 
+  // tronçons TER détaillés (ouverts par l'utilisateur), gardés d'un affichage à l'autre
+  const terOpen = new Set();
+  const terKey = l => `${l.from}|${l.to}|${l.dep}|${l.dep_day || 0}`;
+  const terToggle = (tk, open, label) => `<button class="ter-tog${open ? ' open' : ''}" type="button" data-ter-tog="${esc(tk)}" aria-expanded="${open}">${esc(label)}${ICON.chev}</button>`;
+
   // TER / car en plusieurs trains : chaque tronçon a sa ligne, avec arrêts et correspondances,
   // comme les trains Max. Un seul prix et un seul lien pour l'ensemble (un billet TER).
-  function terStepsHTML(l, node, time) {
+  function terStepsHTML(l, node, time, tk, hide) {
+    const attr = ` data-ter="${esc(tk)}"${hide ? ' hidden' : ''}`;
     const st = l.steps, p = l.price || {};
     // horaires des étapes en minutes absolues (passage de minuit : jour suivant)
     let day = l.dep_day || 0, prev = -1;
@@ -857,20 +867,20 @@
       if (j > 0) {
         const a = st[j - 1], wait = ts[j].dep.m - ts[j - 1].arr.m;
         const move = !samePlace(a.to, s.from) ? `<em class="move">${ICON.walk}Changement de gare : ${esc(a.to)} → ${esc(s.from)}</em>` : '';
-        h += `<li class="stop">${time(a.arr, ts[j - 1].arr.day)}${node('paid', 'conn')}<span class="s-name">${esc(a.to)}<small>arrivée</small></span></li>`;
-        h += `<li class="conn"><span class="s-time"></span>${node('conn', 'conn')}<div class="s-body">
+        h += `<li class="stop"${attr}>${time(a.arr, ts[j - 1].arr.day)}${node('paid', 'conn')}<span class="s-name">${esc(a.to)}<small>arrivée</small></span></li>`;
+        h += `<li class="conn"${attr}><span class="s-time"></span>${node('conn', 'conn')}<div class="s-body">
           <span class="conn-chip">${ICON.clock}Correspondance ${fmtDur(wait)}</span>${move}</div></li>`;
-        h += `<li class="stop">${time(s.dep, ts[j].dep.day)}${node('conn', 'paid')}<span class="s-name">${esc(s.from)}<small>départ</small></span></li>`;
+        h += `<li class="stop"${attr}>${time(s.dep, ts[j].dep.day)}${node('conn', 'paid')}<span class="s-name">${esc(s.from)}<small>départ</small></span></li>`;
       }
       const first = j === 0, last = j === st.length - 1;
       const before = first && !samePlace(s.from, l.from_name) ? walk(l.from_name, s.from) : '';
       const after = last && !samePlace(s.to, l.to_name) ? walk(s.to, l.to_name) : '';
       const body = `${before}<div class="s-title"><b>${esc(s.mode)}</b>${first ? `<em class="b paid">${fmtPrice(p.price)}</em>` : ''}</div>
-        <div class="s-sub">${esc(s.from)} → ${esc(s.to)} · ${fmtDur(ts[j].arr.m - ts[j].dep.m)}${first ? ` · prix pour les ${st.length} trajets` : ''}</div>${after}
+        <div class="s-sub">${esc(s.from)} → ${esc(s.to)} · ${fmtDur(ts[j].arr.m - ts[j].dep.m)}${first ? ` · prix pour les ${st.length} trajets` : ''}</div>${first ? terToggle(tk, true, 'Regrouper') : ''}${after}
         ${last ? `${l.estimated_schedule ? '<div class="s-note est">Horaire estimé d\'après la semaine précédente : la SNCF ne l\'a pas encore publié.</div>' : ''}
         <div class="s-note">Estimation : ${p.base ? `tarif normal ≈ ${nf.format(p.base)} € · ` : ''}${esc(p.label || '')}. Les promos affichées par SNCF ne se cumulent pas avec les cartes.</div>
         <a class="book" href="${esc(l.book_url)}" target="_blank" rel="noopener">Voir ce trajet sur SNCF Connect ${ICON.ext}</a>` : ''}`;
-      h += `<li class="leg paid"><span class="s-time"></span><span class="s-node"></span><div class="s-body">${body}</div></li>`;
+      h += `<li class="leg paid"${attr}><span class="s-time"></span><span class="s-node"></span><div class="s-body">${body}</div></li>`;
     });
     return h;
   }
@@ -1503,6 +1513,16 @@
     $('#results').addEventListener('click', async e => {
       const hit = e.target.closest('.trip-hit');
       if (hit) { select(hit.closest('.trip').dataset.key); return; }
+      const terB = e.target.closest('[data-ter-tog]');
+      if (terB) {
+        const tk = terB.dataset.terTog, open = !terOpen.has(tk);
+        open ? terOpen.add(tk) : terOpen.delete(tk);
+        // vue regroupée (1 ligne) ↔ vue détaillée (tronçons) : la première a le bouton « Détailler »
+        terB.closest('.line').querySelectorAll('[data-ter]').forEach(li => {
+          if (li.dataset.ter === tk) li.hidden = li.querySelector('.ter-tog:not(.open)') ? open : !open;
+        });
+        return;
+      }
       const dirB = e.target.closest('[data-dir]');
       if (dirB) { setDir(dirB.dataset.dir); return; }
       if (e.target.closest('#btn-more')) { state.showMore = !state.showMore; renderResults(); return; }
