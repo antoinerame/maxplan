@@ -36,13 +36,12 @@ def do_calprices(qs):
 
 def calendar_prices(src, dst, prefs, maxconn, qs, dates=None):
     """Les jours sans train à 0 € : le prix le plus bas avec un TER ou un car (au départ ou à l'arrivée),
-    tel que la recherche le trouve (horaires locaux seulement, sans appel à l'API SNCF, recherche
-    allégée : le prix le plus bas suffit, pas toutes les variantes)."""
+    tel que la recherche le trouve (horaires locaux seulement, sans appel à l'API SNCF)."""
     def one(date):
         if senior_weekend(prefs, date):
             return None
         opts = {"prefs": prefs, "maxconn": maxconn, "ter": True, "ter_transfers": 3, "nights": False,
-                "ip": _p(qs, "_ip"), "local_only": True, "light": True, "min_dep": past_min(date), "max_dep": 1440}
+                "ip": _p(qs, "_ip"), "local_only": True, "min_dep": past_min(date), "max_dep": 1440}
         try:
             its = search_one_day(src, dst, date, opts)["itineraries"]
         except Exception:

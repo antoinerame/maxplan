@@ -220,9 +220,8 @@ def search_one_day(src, dst, date, opts):
 
         # Pour les relais les plus proches, plusieurs arrivées dans la journée (pas seulement la 1re).
         jobs = []
-        light = opts.get("light")             # prix du calendrier : le moins cher suffit
-        for rank, (km, s) in enumerate(ranked[:4 if light else config.TER_CANDIDATES]):
-            quota = (2, 1)[min(rank, 1)] if light else                 config.TER_ARRIVALS_PER_RELAY[min(rank, len(config.TER_ARRIVALS_PER_RELAY) - 1)]
+        for rank, (km, s) in enumerate(ranked[:config.TER_CANDIDATES]):
+            quota = config.TER_ARRIVALS_PER_RELAY[min(rank, len(config.TER_ARRIVALS_PER_RELAY) - 1)]
             paths = parcours.search(edges, origins, [s], max_conn=opts["maxconn"], max_results=40, **win)
             kept, last_arr = [], None
             # même arrivée au relais : la variante sans ticket (Marne-la-Vallée plutôt que Roissy à 14 €)
@@ -253,28 +252,36 @@ def search_one_day(src, dst, date, opts):
             local = gtfs.ready() and gtfs.covers(jdate) and gtfs.knows(g["id"]) and gtfs.knows(dest_geo["id"])
             jr = gtfs.journey(g["id"], dest_geo["id"], jdate, base.min_to_hhmm(ready)) if local else None
             if local and not tail_too_slow(jr, ready, g, dest_geo):
-                return job, jr, ready, False
+                return job, [(jr, False)]
             # 2) en secours, l'API SNCF : elle connaît aussi les cars régionaux hors SNCF (ZOU!, etc.)
             #    absents du GTFS. Compté dans les budgets (global et par visiteur).
             if opts.get("local_only"):          # calendrier des prix : horaires locaux seulement
-                return job, jr, ready, False
+                return job, [(jr, False)]
             if not IP_BUDGET.take(opts.get("ip", ""), 1):
                 opts["ter_limited"] = jr is None
-                return job, jr, ready, False
+                return job, [(jr, False)]
             qdate, estimated = ter_query_date(jdate)
             if not qdate:
-                return job, jr, ready, False
+                return job, [(jr, False)]
             api = navitia.journey(g["id"], dest_geo["id"], qdate, base.min_to_hhmm(ready),
                                   max_transfers=opts["ter_transfers"])
-            if api and (jr is None or tail_end(api, ready) < tail_end(jr, ready)):
-                return job, api, ready, estimated
-            return job, jr, ready, False
+            # les deux quand ils diffèrent : l'API trouve parfois plus rapide (car hors SNCF), les horaires
+            # locaux parfois moins cher ; le tri garde ce qui vaut la peine (et le calendrier des prix,
+            # qui n'utilise que les horaires locaux, retombe sur le même prix le plus bas)
+            return job, [(api, estimated), (jr, False)]
 
-        for (s, g, path), jr, ready, estimated in IO_POOL.map(tail, jobs):
-            if not jr or jr["duration_min"] > config.TER_MAX_TAIL_MIN:
-                continue
-            ter_itins.append((path, s, g, jr, ready, estimated))
-            labels.update(e for leg in path for e in (leg["o"], leg["d"]))
+        for (s, g, path), tails in IO_POOL.map(tail, jobs):
+            ready = path[-1]["arr"] + gares.min_connection(s)
+            seen_tails = set()
+            for jr, estimated in tails:
+                if not jr or jr["duration_min"] > config.TER_MAX_TAIL_MIN:
+                    continue
+                sig = (jr.get("departure"), jr.get("arrival"), tuple(jr.get("modes", ())))
+                if sig in seen_tails:
+                    continue
+                seen_tails.add(sig)
+                ter_itins.append((path, s, g, jr, ready, estimated))
+                labels.update(e for leg in path for e in (leg["o"], leg["d"]))
 
     # 3) TER au départ : depuis une ville sans train Max (Annecy, Gap) ou pour attraper un train Max
     #    d'une grande gare proche (Saint-Étienne → Lyon Part-Dieu), en partant le plus tard possible
@@ -283,8 +290,7 @@ def search_one_day(src, dst, date, opts):
     free = [(p[0]["dep"], p[-1]["arr"]) for p in max_paths if not path_nocturnal(p)
             and not ticket_price(path_tickets(p, origins, targets, o_near, t_near))]
     head_jobs = origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win,
-                                bool(max_paths), free=free,
-                                **({"max_relays": 2, "quota": 2} if opts.get("light") else {})) if opts["ter"] else []
+                                bool(max_paths), free=free) if opts["ter"] else []
     for _, path, _, _ in head_jobs:
         labels.update(e for leg in path for e in (leg["o"], leg["d"]))
 
