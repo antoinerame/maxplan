@@ -334,6 +334,7 @@ def load():
     with _lock:
         _data, _days = new, {}
         _by_cell.clear()
+        _ZONES.clear()
         _memo.clear()
     return len(b.trips), len(loaded)
 
@@ -548,6 +549,25 @@ def _build_day(d, ymd, data):
     return cols, cols[0]
 
 
+_ZONES = {}               # (jour, mailles) -> indices triés de tous les tronçons de la zone ce jour-là
+
+
+def _zone(ymd, conns, cells):
+    """Tronçons d'une zone géographique (mailles entre départ et arrivée) pour toute la journée, triés :
+    calculé une fois par jour et par zone, puis chaque recherche n'en prend que la tranche horaire."""
+    key = (int(ymd.replace("-", "")), tuple(sorted(cells)))
+    hit = _ZONES.get(key)
+    if hit is not None and hit[0] is conns:
+        return hit[1]
+    by_cell = _cell_index(ymd, conns)
+    zone = array("i", sorted(i for c in cells for i in by_cell.get(c, ())))
+    with _lock:
+        if len(_ZONES) >= 48:
+            _ZONES.pop(next(iter(_ZONES)))
+        _ZONES[key] = (conns, zone)
+    return zone
+
+
 def _csa(conns, idx, src, dst, t0, max_legs, stop_at=None):
     """Arrivée au plus tôt src -> dst en au plus max_legs véhicules, correspondances à pied comprises.
     Renvoie les tronçons empruntés [(circulation, rang montée, rang descente)] ou None.
@@ -623,12 +643,8 @@ def journey(from_id, to_id, ymd, hhmm, max_transfers=3):
     conns, deps = _connections(ymd)
     cells = _box_cells(_data["areas"][src], _data["areas"][dst])
     lo, hi = bisect.bisect_left(deps, t0), bisect.bisect_left(deps, t0 + 2 * HORIZON)
-    by_cell, parts = _cell_index(ymd, conns), []
-    for c in cells:
-        x = by_cell.get(c)
-        if x:
-            parts.append(x[bisect.bisect_left(x, lo):bisect.bisect_left(x, hi)])
-    idx = sorted(i for x in parts for i in x)       # calculé une fois pour les 4 passes
+    zone = _zone(ymd, conns, cells)
+    idx = zone[bisect.bisect_left(zone, lo):bisect.bisect_left(zone, hi)]   # une fois pour les 4 passes
     # on ne change de véhicule que si ça fait vraiment arriver plus tôt (20 min par changement) ;
     # chaque passe ne cherche que ce qui peut battre la meilleure solution déjà trouvée
     best = None
@@ -716,12 +732,8 @@ def journey_by(from_id, to_id, ymd, deadline, max_transfers=3):
     conns, deps = _connections(ymd)
     cells = _box_cells(_data["areas"][src], _data["areas"][dst])
     lo, hi = bisect.bisect_left(deps, max(0, deadline - 2 * HORIZON)), bisect.bisect_right(deps, deadline)
-    by_cell, parts = _cell_index(ymd, conns), []
-    for c in cells:
-        x = by_cell.get(c)
-        if x:
-            parts.append(x[bisect.bisect_left(x, lo):bisect.bisect_left(x, hi)])
-    idx = sorted(i for x in parts for i in x)
+    zone = _zone(ymd, conns, cells)
+    idx = zone[bisect.bisect_left(zone, lo):bisect.bisect_left(zone, hi)]
     best = None
     for legs in range(1, max_transfers + 2):
         path = _csa_back(conns, idx, src, dst, deadline, legs)

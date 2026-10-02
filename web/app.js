@@ -1134,7 +1134,7 @@
           <small>${useHist
             ? `${l.history.days_with_free} ${l.history.days_with_free > 1 ? 'jours' : 'jour'} sur ${l.history.days}${DAYS_TXT[t.days]} depuis le ${esc(fmtShort(l.history.since))} (historique, trains directs)`
             : `${l.free_days} ${l.free_days > 1 ? 'jours' : 'jour'} sur ${l.days}${DAYS_TXT[t.days]} à venir · ${nf.format(l.avg_trains)} train${l.avg_trains >= 2 ? 's' : ''}/jour en moyenne`}</small>
-          ${pt[k] ? `<small class="v-ter">+ ${pct(pt[k])} des jours en Max jusqu'à ${esc(l.ter.via)} puis TER : ≈ ${nf.format(l.ter.price)} € seulement</small>` : ''}</div>`).join('')}</div>`;
+          ${pt[k] ? `<small class="v-ter">+ ${pct(pt[k])} des jours ${l.ter.side === 'start' ? `en TER jusqu'à ${esc(l.ter.via)} puis en Max` : `en Max jusqu'à ${esc(l.ter.via)} puis en TER`} : ≈ ${nf.format(l.ter.price)} € seulement</small>` : ''}</div>`).join('')}</div>`;
       if (price.some(x => !x)) {
         missing++;
         body += `<label class="v-price"><span>Pas de tarif officiel pour ce trajet (correspondance ou petite gare). Combien paies-tu d'habitude un aller simple ?</span>

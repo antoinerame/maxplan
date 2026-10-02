@@ -11,6 +11,7 @@ from maxplan.ter import prix
 from maxplan.ter import tarifs
 from maxplan.ter.navitia import navitia
 from maxplan.api.commun import BadRequest, _p, _place, coming_dates, senior_weekend, shift, weekday_idx
+from maxplan.api.recherche import origin_ter_jobs
 from maxplan.api.trajets import (
     DAY_POOL, dest_place, detour_ratio, display_name, edges_for, max_trips, od_areas, path_nocturnal, tail_end,
 )
@@ -56,15 +57,25 @@ def do_value(qs):
             cands.append((est, km, s, g, path))
         cands.sort(key=lambda c: c[:2])
         if not (gtfs.ready() and gtfs.covers(date) and gtfs.knows(dest.get("id", ""))):
-            return (cands[0][0], display_name(cands[0][2], cands[0][3])) if cands else None
+            return (cands[0][0], display_name(cands[0][2], cands[0][3]), "end") if cands else None
         for est, km, s, g, path in cands[:2]:          # les deux relais les moins chers
             if not gtfs.knows(g["id"]):
                 continue
             ready = path[-1]["arr"] + gares.min_connection(s)
             jr = gtfs.journey(g["id"], dest["id"], shift(date, ready // 1440), base.min_to_hhmm(ready))
             if jr and tail_end(jr, ready) <= config.TER_MAX_TAIL_MIN:
-                return prix.estimate(jr["sections"], prefs)["price"], display_name(s, g)
+                return prix.estimate(jr["sections"], prefs)["price"], display_name(s, g), "end"
         return None
+
+    def head_option(date, edges, stations, a, b, origins, targets):
+        """Sinon, TER ou car du départ jusqu'à une gare Max proche, puis Max (Annecy → Lyon → Paris),
+        comme la recherche : le moins cher des trajets possibles ce jour-là."""
+        # il suffit de savoir s'il y a une option et son prix : deux gares-relais, un train chacune
+        jobs = origin_ter_jobs(a, b, date, edges, stations, origins, targets, {"maxconn": 1},
+                               {"min_dep": 0, "max_dep": 1440}, False, max_relays=2, quota=1)
+        best = min(((prix.estimate(jr["sections"], prefs)["price"], s, g) for s, _, g, jr in jobs),
+                   key=lambda x: x[0], default=None)
+        return best and (best[0], display_name(best[1], best[2]), "start")
 
     def count(date, a, b, dest):
         """(trajets 100 % Max, durée du plus rapide direct, (prix TER, gare-relais) si Max + TER possible)."""
@@ -83,12 +94,18 @@ def do_value(qs):
         its = max_trips(parcours.search(edges, origins, targets, max_conn=3, max_results=200),
                         origins, targets, o_near, t_near)
         direct = [x["_arr"] - x["_dep"] for x in its if len(x["legs"]) == 1]
-        ter = None if its else ter_option(date, edges, origins, targets, dest)
+        ter = None if its else (ter_option(date, edges, origins, targets, dest)
+                                or head_option(date, edges, stations, a, b, origins, targets))
         return len(its), min(direct, default=None), ter
 
+    # les deux sens jour par jour : les horaires d'une journée ne sont chargés qu'une fois
+    dest_out = dest_place(dst, gares.resolve_city(dst, known), known)
+    dest_ret = dest_place(src, gares.resolve_city(src, known), known)
+    both = list(DAY_POOL.map(lambda d: (count(d, src, dst, dest_out), count(d, dst, src, dest_ret)), dates))
+
     def direction(a, b):
-        dest = dest_place(b, gares.resolve_city(b, known), known)
-        got = [c for c in DAY_POOL.map(lambda d: count(d, a, b, dest), dates) if c is not None]
+        got = [c[0 if a == src else 1] for c in both]
+        got = [c for c in got if c is not None]
         counts = [c[0] for c in got]
         durations = [c[1] for c in got if c[1]]
         ters = [c[2] for c in got if c[2]]
@@ -108,8 +125,10 @@ def do_value(qs):
         ter = None
         if ters:
             relays = [t[1] for t in ters]
-            ter = {"days": len(ters), "price": round(sum(t[0] for t in ters) / len(ters), 1),
-                   "via": max(sorted(set(relays)), key=relays.count)}
+            via = max(sorted(set(relays)), key=relays.count)
+            ter = {"days": len(ters), "price": round(sum(t[0] for t in ters) / len(ters), 1), "via": via,
+                   # « end » : Max jusqu'à la gare puis TER ; « start » : TER jusqu'à la gare puis Max
+                   "side": next(t[2] for t in ters if t[1] == via)}
         return {"days": len(counts), "free_days": sum(1 for c in counts if c), "ter": ter,
 
 

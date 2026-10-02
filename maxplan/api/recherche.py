@@ -54,7 +54,8 @@ def ter_estimated_notice():
             f"{when}. On reprend ceux du même jour de la semaine précédente ; vérifie sur SNCF Connect.")
 
 
-def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win, has_max):
+def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win, has_max,
+                    max_relays=None, quota=None):
     """TER ou car du lieu de départ jusqu'à une gare Max proche, puis trains Max. Pour chaque train Max
     au départ de la gare-relais, on cherche le TER qui part le plus tard en arrivant à temps (horaires
     locaux, aucune requête à l'API). Renvoie [(relais, chemin Max, géo du relais, trajet TER)]."""
@@ -100,11 +101,11 @@ def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win
                                 min_dep=ready, max_dep=min(1440, win["max_dep"] + 300))
         if paths:
             useful.append((s, g, paths))
-        if len(useful) >= (config.ORIGIN_TER_CANDIDATES if not (origins and has_max) else 2):
+        if len(useful) >= (max_relays or (config.ORIGIN_TER_CANDIDATES if not (origins and has_max) else 2)):
             break
     jobs = []
     for rank, (s, g, paths) in enumerate(useful):
-        quota = (3, 2, 2, 1)[min(rank, 3)]
+        n_max = quota or (3, 2, 2, 1)[min(rank, 3)]
         kept, last = [], None
         for p in sorted(paths, key=lambda p: (p[-1]["arr"], -p[0]["dep"])):
             if any(e["d"] in skip and e["d"] not in targets for e in p):
@@ -112,7 +113,7 @@ def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win
             if last is None or p[-1]["arr"] - last >= config.TER_ARRIVAL_SPACING_MIN:
                 kept.append(p)
                 last = p[-1]["arr"]
-            if len(kept) >= quota:
+            if len(kept) >= n_max:
                 break
         for p in kept:
             deadline = p[0]["dep"] - gares.min_connection(s)
