@@ -980,7 +980,7 @@
       if (!d.price) return;
       const price = `${nf.format(Math.round(d.price * 10) / 10)} €`;
       cell.classList.add('paid');
-      cell.querySelector('span').innerHTML = `${d.n}<i>${price}</i>`;
+      cell.querySelector('span').innerHTML = `${d.n}<i>à ${price}</i>`;
       const t = `Pas de train à 0 € · ${plural(d.n, 'trajet', 'trajets')} avec TER ou car, dès ${price}`;
       cell.title = t;
       cell.setAttribute('aria-label', `${fmtDay(d.date)} : ${t}`);
