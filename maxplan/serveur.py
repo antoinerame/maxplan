@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from maxplan import VERSION
 from maxplan import config
 from maxplan.ter import gtfs
-from maxplan.api.calendrier import do_calendar, do_ideas, do_trends
+from maxplan.api.calendrier import do_calendar, do_calprices, do_ideas, do_trends
 from maxplan.api.commun import BadRequest, _p
 from maxplan.api.explorer import do_explore
 from maxplan.api.infos import do_insights, do_meta
@@ -35,6 +35,7 @@ ROUTES = {
     "/api/stations": ("stations", do_stations),
     "/api/nearest": ("nearest", do_nearest),
     "/api/calendar": ("calendar", do_calendar),
+    "/api/calprices": ("prices", do_calprices),
     "/api/ideas": ("calendar", do_ideas),
     "/api/value": ("calendar", do_value),
     "/api/trends": ("calendar", do_trends),
@@ -49,12 +50,14 @@ ROUTES = {
 # Réponses déjà calculées : plusieurs visiteurs qui cherchent la même chose ne coûtent qu'un calcul.
 # Durées courtes : les places Max changent une fois par jour, les horaires la nuit.
 CACHE_TTL = {"/api/insights": 1800, "/api/search": 900, "/api/calendar": 3600, "/api/value": 3600, "/api/trends": 3600,
-             "/api/explore": 1800, "/api/ideas": 3600, "/api/stations": 300, "/api/meta": 30}
+             "/api/explore": 1800, "/api/ideas": 3600, "/api/stations": 300, "/api/meta": 30,
+             "/api/calprices": 3600}
 
 
 # Calculs lourds (CPU) : au plus 2 à la fois. Sur un petit serveur, 10 calculs en parallèle finissent
 # tous lentement ; en file d'attente, chacun finit vite et les requêtes légères restent fluides.
-HEAVY = {"/api/search", "/api/calendar", "/api/value", "/api/trends", "/api/insights", "/api/ideas"}
+HEAVY = {"/api/search", "/api/calendar", "/api/value", "/api/trends", "/api/insights", "/api/ideas",
+         "/api/calprices"}
 _HEAVY_SLOTS = threading.BoundedSemaphore(2)
 # prix du calendrier (≈ 20 s, en arrière-plan) : un seul à la fois, sans prendre la place des recherches
 _PRICE_SLOTS = threading.BoundedSemaphore(1)
@@ -80,7 +83,7 @@ def cached(path, fn, qs):
             return hit[1]
         try:
             if path in HEAVY:
-                with _PRICE_SLOTS if qs.get("prices") else _HEAVY_SLOTS:
+                with _PRICE_SLOTS if path == "/api/calprices" else _HEAVY_SLOTS:
                     res = fn(qs)
             else:
                 res = fn(qs)

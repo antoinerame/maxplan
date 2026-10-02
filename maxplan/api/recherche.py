@@ -220,8 +220,9 @@ def search_one_day(src, dst, date, opts):
 
         # Pour les relais les plus proches, plusieurs arrivées dans la journée (pas seulement la 1re).
         jobs = []
-        for rank, (km, s) in enumerate(ranked[:config.TER_CANDIDATES]):
-            quota = config.TER_ARRIVALS_PER_RELAY[min(rank, len(config.TER_ARRIVALS_PER_RELAY) - 1)]
+        light = opts.get("light")             # prix du calendrier : le moins cher suffit
+        for rank, (km, s) in enumerate(ranked[:4 if light else config.TER_CANDIDATES]):
+            quota = (2, 1)[min(rank, 1)] if light else                 config.TER_ARRIVALS_PER_RELAY[min(rank, len(config.TER_ARRIVALS_PER_RELAY) - 1)]
             paths = parcours.search(edges, origins, [s], max_conn=opts["maxconn"], max_results=40, **win)
             kept, last_arr = [], None
             # même arrivée au relais : la variante sans ticket (Marne-la-Vallée plutôt que Roissy à 14 €)
@@ -282,7 +283,8 @@ def search_one_day(src, dst, date, opts):
     free = [(p[0]["dep"], p[-1]["arr"]) for p in max_paths if not path_nocturnal(p)
             and not ticket_price(path_tickets(p, origins, targets, o_near, t_near))]
     head_jobs = origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win,
-                                bool(max_paths), free=free) if opts["ter"] else []
+                                bool(max_paths), free=free,
+                                **({"max_relays": 2, "quota": 2} if opts.get("light") else {})) if opts["ter"] else []
     for _, path, _, _ in head_jobs:
         labels.update(e for leg in path for e in (leg["o"], leg["d"]))
 

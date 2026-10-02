@@ -788,24 +788,32 @@
   };
 
   function detailHTML(it) {
+    // plan de ligne : arrêt, train, arrêt d'arrivée, correspondance (pointillés), arrêt de départ…
+    // chaque arrêt dessine le haut et le bas de la ligne (couleur du tronçon d'avant et d'après)
+    const kind = l => (l.free ? 'free' : 'paid');
+    const node = (inK, outK) => `<span class="s-node">${inK ? `<i class="bi ${inK}"></i>` : ''}${outK ? `<i class="bo ${outK}"></i>` : ''}</span>`;
+    const time = (t, day) => `<span class="s-time">${esc(t)}${day ? `<sup>+${day}</sup>` : ''}</span>`;
     let h = '<div class="detail"><ol class="line">';
     it.legs.forEach((l, i) => {
-      let sub = '';
-      if (i > 0) {
+      if (i === 0) {
+        const access = l.access_from ? `<em class="move">${ICON.walk}${esc(l.access_from)}</em>` : '';
+        h += `<li class="stop first">${time(l.dep, l.dep_day)}${node('', kind(l))}<span class="s-name">${esc(l.from_name)}<small>départ</small>${access}</span></li>`;
+      } else {
         const prev = it.legs[i - 1];
-        const wait = absMin(l.dep, l.dep_day) - absMin(prev.arr, prev.arr_day);
-        const move = !samePlace(prev.to_name, l.from_name)
-          ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${l.change_note ? ` (${esc(l.change_note)})` : /^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? ' (métro ou RER)' : ''}</em>` : '';
-        const at = samePlace(prev.to_name, l.from_name) ? '' : ` à ${esc(prev.to_name)}`;
-        sub = `<small>arrivée ${esc(prev.arr)}${at} · correspondance ${fmtDur(Math.max(0, wait))}${wait < 30 ? ', <span class="short">marge courte</span>' : ''}</small>${move}`;
+        const wait = Math.max(0, absMin(l.dep, l.dep_day) - absMin(prev.arr, prev.arr_day));
+        const other = !samePlace(prev.to_name, l.from_name);
+        const how = l.change_note || (/^Paris /.test(l.from_name) && /^Paris /.test(prev.to_name) ? 'métro ou RER' : '');
+        const move = other ? `<em class="move">${ICON.walk}Changement de gare : ${esc(prev.to_name)} → ${esc(l.from_name)}${how ? ` (${esc(how)})` : ''}</em>` : '';
+        h += `<li class="stop">${time(prev.arr, prev.arr_day)}${node(kind(prev), 'conn')}<span class="s-name">${esc(prev.to_name)}<small>arrivée</small></span></li>`;
+        h += `<li class="conn"><span class="s-time"></span>${node('conn', 'conn')}<div class="s-body">
+          <span class="conn-chip${wait < 30 ? ' short' : ''}">${ICON.clock}Correspondance ${fmtDur(wait)}${wait < 30 ? ' · marge courte' : ''}</span>${move}</div></li>`;
+        h += `<li class="stop">${time(l.dep, l.dep_day)}${node('conn', kind(l))}<span class="s-name">${esc(l.from_name)}<small>départ</small></span></li>`;
       }
-      const access = i === 0 && l.access_from ? `<em class="move">${ICON.walk}${esc(l.access_from)}</em>` : '';
-      h += `<li class="stop${i === 0 ? ' first' : ''}"><span class="s-time">${esc(l.dep)}${l.dep_day ? `<sup>+${l.dep_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(l.from_name)}${sub}${access}</span></li>`;
       const dur = l.duration_min ?? (absMin(l.arr, l.arr_day) - absMin(l.dep, l.dep_day));
       let body;
       if (l.free) {
         body = `<div class="s-title"><b>${esc(l.mode)} ${esc(l.train)}</b><em class="b free">Max · 0 €</em></div>
-          <div class="s-sub">${fmtDur(dur)} · 1 réservation Max</div>`;
+          <div class="s-sub">${fmtDur(dur)}</div>`;
       } else {
         const p = l.price || {};
         // étapes du TER / car, avec les passages à pied entre arrêts (gare → gare routière…)
@@ -826,7 +834,7 @@
         <a class="book" href="${esc(l.book_url)}" target="_blank" rel="noopener">Voir ${l.free ? 'ce train' : 'ce trajet'} sur SNCF Connect ${ICON.ext}</a></div></li>`;
     });
     const last = it.legs[it.legs.length - 1];
-    h += `<li class="stop last"><span class="s-time">${esc(last.arr)}${last.arr_day ? `<sup>+${last.arr_day}</sup>` : ''}</span><span class="s-node"></span><span class="s-name">${esc(last.to_name)}<small>arrivée</small>${last.access_to ? `<em class="move">${ICON.walk}${esc(last.access_to)}</em>` : ''}</span></li>`;
+    h += `<li class="stop last">${time(last.arr, last.arr_day)}${node(kind(last), '')}<span class="s-name">${esc(last.to_name)}<small>arrivée</small>${last.access_to ? `<em class="move">${ICON.walk}${esc(last.access_to)}</em>` : ''}</span></li>`;
     const sepNote = it.legs.length > 1
       ? `<p class="book-note sep-note"><b>Correspondances non garanties :</b> chaque train se réserve à part. Si le premier a du retard, le suivant ne l'attendra pas et ton billet n'est pas reporté automatiquement comme pour un trajet vendu d'un bloc par la SNCF. Garde de la marge, surtout pour le dernier train de la journée.</p>` : '';
     return h + `</ol>${sepNote}<p class="book-note">Le lien SNCF Connect
@@ -911,35 +919,58 @@
     loadCalPrices();
   }
 
-  // Les jours sans train à 0 € : le prix le plus bas avec un TER ou un car (au départ ou à l'arrivée),
-  // demandé à part pour que le calendrier s'affiche tout de suite
+  // Les jours sans train à 0 € : le prix le plus bas avec un TER ou un car (au départ ou à l'arrivée).
+  // Demandé par petits lots de jours après l'affichage : les cases en attente s'animent et se
+  // remplissent au fur et à mesure.
   const calPrices = {};
   async function loadCalPrices() {
     if (!opts.ter || !state.cal) return;
     const key = state.cal.key;
     let from = stationValue($('#s-from')), to = stationValue($('#s-to'));
     if (state.calDir === 'ret') [from, to] = [to, from];
-    const legend = $('#cal-legend');
-    if (!calPrices[key]) {
-      if (legend) legend.innerHTML = `<span class="ld-inline"><span class="ld-track" aria-hidden="true"><i></i></span>Calcul des prix avec TER…</span>`;
-      try { calPrices[key] = (await api('/api/calendar', { from, to, prices: 1, nights: opts.nights ? 1 : 0, ...profileParams() })).days; }
-      catch { calPrices[key] = []; }
-    }
-    if (state.cal?.key !== key) return;                     // calendrier changé entre-temps
-    for (const d of calPrices[key]) {
+    const known = calPrices[key] || (calPrices[key] = {});
+    const todo = state.cal.r.days.filter(d => d.date && !d.n && !d.blocked).map(d => d.date);
+    const fill = d => {
       const cell = $(`#cal .cal-day[data-day="${d.date}"]`);
-      if (!cell || cell.classList.contains('l1') || cell.classList.contains('l2') || cell.classList.contains('l3')) continue;
+      if (!cell) return;
+      cell.classList.remove('pricing');
+      if (!d.price) return;
       const price = `${nf.format(Math.round(d.price * 10) / 10)} €`;
       cell.classList.add('paid');
       cell.querySelector('span').innerHTML = `${d.n}<i>${price}</i>`;
       const t = `Pas de train à 0 € · ${plural(d.n, 'trajet', 'trajets')} avec TER ou car, dès ${price}`;
       cell.title = t;
       cell.setAttribute('aria-label', `${fmtDay(d.date)} : ${t}`);
+    };
+    const legend = $('#cal-legend');
+    const done = () => todo.filter(d => known[d]).length;
+    const status = () => {
+      if (!legend) return;
+      const n = done();
+      legend.innerHTML = n < todo.length
+        ? `<span class="ld-inline"><span class="ld-track" aria-hidden="true"><i></i></span>Prix avec TER ou car : ${n}/${todo.length} jours…</span>`
+        : Object.values(known).some(d => d.price)
+          ? `100 % Max en vert · <span class="cal-key-paid">avec TER ou car</span> : nombre de trajets et prix le plus bas`
+          : '100 % Max · pas de trajet avec TER ou car les autres jours';
+    };
+    for (const d of todo) {
+      if (known[d]) fill(known[d]);
+      else $(`#cal .cal-day[data-day="${d}"]`)?.classList.add('pricing');
     }
-    if (legend) legend.innerHTML = calPrices[key].length
-      ? `100 % Max en vert · <span class="cal-key-paid">avec TER ou car</span> : nombre de trajets et prix le plus bas`
-      : '100 % Max · touche un jour pour voir les trains';
+    status();
+    const rest = todo.filter(d => !known[d]);
+    for (let k = 0; k < rest.length; k += 4) {
+      const batch = rest.slice(k, k + 4);
+      let r;
+      try { r = await api('/api/calprices', { from, to, dates: batch.join(','), ...profileParams() }); }
+      catch { r = { days: batch.map(date => ({ date, n: 0 })) }; }
+      for (const d of r.days) known[d.date] = d;
+      if (state.cal?.key !== key || $('#cal').hidden) return;   // calendrier changé ou fermé
+      r.days.forEach(fill);
+      status();
+    }
   }
+
 
   // Tendances tirées de l'historique des places Max (enregistrées chaque jour par le serveur)
   const trendsCache = {};

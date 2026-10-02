@@ -691,13 +691,13 @@ html.busy .loadbar{opacity:1}
 @keyframes loadbar{to{left:100%}}
 /* petit train qui fait l'aller-retour sur sa voie */
 .loading{display:flex;align-items:center;gap:12px;margin:0;font-size:12.5px;color:var(--muted)}
-.ld-track{position:relative;flex:none;display:inline-block;width:68px;height:16px;background:linear-gradient(currentColor,currentColor) left bottom/100% 2px no-repeat;opacity:.85}
+.ld-track{position:relative;flex:none;display:inline-block;width:86px;height:16px;background:linear-gradient(currentColor,currentColor) left bottom/100% 2px no-repeat;opacity:.85}
 .ld-track i{position:absolute;bottom:3px;left:0;width:24px;height:10px;border-radius:2px 8px 2px 2px;background:var(--primary);box-shadow:inset -5px 0 0 var(--accent);animation:ldtrain 1.2s ease-in-out infinite alternate}
-@keyframes ldtrain{to{left:calc(100% - 24px)}}
+@keyframes ldtrain{from{left:18px}to{left:calc(100% - 24px)}}
 .ld-inline{display:inline-flex;align-items:center;gap:8px}
-.ld-inline .ld-track{width:40px}
+.ld-inline .ld-track{width:56px}
 .ld-inline .ld-track i{width:14px;box-shadow:none}
-@keyframes ldtrain-s{to{left:calc(100% - 14px)}}
+@keyframes ldtrain-s{from{left:13px}to{left:calc(100% - 14px)}}
 .ld-inline .ld-track i{animation-name:ldtrain-s}
 .dots::after{content:"";display:inline-block;width:1.1em;text-align:left;animation:dots 1.2s steps(1) infinite}
 @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
@@ -716,3 +716,27 @@ html.busy .loadbar{opacity:1}
 .cal-day.paid span{display:flex;flex-direction:column;align-items:center;gap:1px}
 .cal-day.paid span i{font-style:normal;font:700 10.5px/1 var(--font-disp);white-space:nowrap}
 .cal-key-paid{color:var(--paid-ink);font-weight:700}
+
+/* plan de ligne : barres continues (haut et bas de chaque arrêt), correspondance en pointillés */
+.s-node .bi,.s-node .bo{position:absolute;left:9px;width:4px;border-radius:2px}
+.s-node .bi{top:-4px;height:13px}
+.s-node .bo{top:9px;bottom:-4px}
+.s-node .free{background:#4FC77F}
+.s-node .paid{background:repeating-linear-gradient(var(--board-urgent) 0 5px,transparent 5px 10px)}
+.s-node .conn{background:repeating-linear-gradient(rgba(255,255,255,.6) 0 3px,transparent 3px 7px)}
+.conn .s-node .bi{height:auto;bottom:50%}
+.conn .s-node .bo{top:50%}
+.conn .s-body{padding:6px 0 10px;gap:4px}
+.conn-chip{display:inline-flex;align-items:center;gap:7px;width:fit-content;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.1);font-weight:800;font-size:13px;color:#FFFFFF}
+.conn-chip svg{width:14px;height:14px;color:var(--board-yellow)}
+.conn-chip.short{background:rgba(247,144,83,.18);color:var(--board-urgent)}
+.conn-chip.short svg{color:var(--board-urgent)}
+.stop .s-name{padding-bottom:8px}
+
+/* calendrier : cases dont le prix avec TER est en cours de calcul (vague lumineuse) */
+.cal-day.pricing{background:linear-gradient(100deg,var(--surface-2) 30%,var(--paid-soft) 50%,var(--surface-2) 70%) 0 0/300% 100%;animation:pricing 1.6s linear infinite}
+@keyframes pricing{from{background-position:100% 0}to{background-position:-200% 0}}
+/* petit train : la locomotive tire un wagon */
+.ld-track i::after{content:"";position:absolute;top:2px;right:calc(100% + 3px);width:15px;height:calc(100% - 2px);border-radius:2px;background:inherit;opacity:.85}
+.ld-inline .ld-track i::after{width:10px}
+@media (prefers-reduced-motion:reduce){.cal-day.pricing{animation:none}}
