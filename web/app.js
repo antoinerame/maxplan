@@ -810,6 +810,7 @@
         h += `<li class="stop">${time(l.dep, l.dep_day)}${node('conn', kind(l))}<span class="s-name">${esc(l.from_name)}<small>départ</small></span></li>`;
       }
       const dur = l.duration_min ?? (absMin(l.arr, l.arr_day) - absMin(l.dep, l.dep_day));
+      if (!l.free && (l.steps || []).length > 1) { h += terStepsHTML(l, node, time); return; }
       let body;
       if (l.free) {
         body = `<div class="s-title"><b>${esc(l.mode)} ${esc(l.train)}</b><em class="b free">Max · 0 €</em></div>
@@ -840,6 +841,38 @@
     return h + `</ol>${sepNote}<p class="book-note">Le lien SNCF Connect
  n'ouvre pas toujours le bon trajet (ça dépend de leur site) : si besoin, cherche le train à la main avec son numéro et son heure de départ.</p></div>`;
 
+  }
+
+  // TER / car en plusieurs trains : chaque tronçon a sa ligne, avec arrêts et correspondances,
+  // comme les trains Max. Un seul prix et un seul lien pour l'ensemble (un billet TER).
+  function terStepsHTML(l, node, time) {
+    const st = l.steps, p = l.price || {};
+    // horaires des étapes en minutes absolues (passage de minuit : jour suivant)
+    let day = l.dep_day || 0, prev = -1;
+    const at = t => { let m = toMin(t) + day * 1440; if (m < prev) { day++; m += 1440; } prev = m; return { m, day }; };
+    const ts = st.map(s => ({ dep: at(s.dep), arr: at(s.arr) }));
+    const walk = (a, b) => `<em class="move">${ICON.walk}À pied : ${esc(a)} → ${esc(b)}</em>`;
+    let h = '';
+    st.forEach((s, j) => {
+      if (j > 0) {
+        const a = st[j - 1], wait = ts[j].dep.m - ts[j - 1].arr.m;
+        const move = !samePlace(a.to, s.from) ? `<em class="move">${ICON.walk}Changement de gare : ${esc(a.to)} → ${esc(s.from)}</em>` : '';
+        h += `<li class="stop">${time(a.arr, ts[j - 1].arr.day)}${node('paid', 'conn')}<span class="s-name">${esc(a.to)}<small>arrivée</small></span></li>`;
+        h += `<li class="conn"><span class="s-time"></span>${node('conn', 'conn')}<div class="s-body">
+          <span class="conn-chip">${ICON.clock}Correspondance ${fmtDur(wait)}</span>${move}</div></li>`;
+        h += `<li class="stop">${time(s.dep, ts[j].dep.day)}${node('conn', 'paid')}<span class="s-name">${esc(s.from)}<small>départ</small></span></li>`;
+      }
+      const first = j === 0, last = j === st.length - 1;
+      const before = first && !samePlace(s.from, l.from_name) ? walk(l.from_name, s.from) : '';
+      const after = last && !samePlace(s.to, l.to_name) ? walk(s.to, l.to_name) : '';
+      const body = `${before}<div class="s-title"><b>${esc(s.mode)}</b>${first ? `<em class="b paid">${fmtPrice(p.price)}</em>` : ''}</div>
+        <div class="s-sub">${esc(s.from)} → ${esc(s.to)} · ${fmtDur(ts[j].arr.m - ts[j].dep.m)}${first ? ` · prix pour les ${st.length} trajets` : ''}</div>${after}
+        ${last ? `${l.estimated_schedule ? '<div class="s-note est">Horaire estimé d\'après la semaine précédente : la SNCF ne l\'a pas encore publié.</div>' : ''}
+        <div class="s-note">Estimation : ${p.base ? `tarif normal ≈ ${nf.format(p.base)} € · ` : ''}${esc(p.label || '')}. Les promos affichées par SNCF ne se cumulent pas avec les cartes.</div>
+        <a class="book" href="${esc(l.book_url)}" target="_blank" rel="noopener">Voir ce trajet sur SNCF Connect ${ICON.ext}</a>` : ''}`;
+      h += `<li class="leg paid"><span class="s-time"></span><span class="s-node"></span><div class="s-body">${body}</div></li>`;
+    });
+    return h;
   }
 
   function select(key, scroll = true) {
