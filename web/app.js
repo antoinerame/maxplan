@@ -904,10 +904,41 @@
     }
     const dirs = state.rt ? `<div class="seg cal-dirs" role="group" aria-label="Sens">${[['out', 'Aller'], ['ret', 'Retour']].map(([v, l]) =>
       `<button type="button" data-cal-dir="${v}" aria-pressed="${(state.calDir || 'out') === v}">${l}</button>`).join('')}</div>` : '';
-    box.innerHTML = `<div class="cal-head"><b>Trains à 0 € par jour${state.calDir === 'ret' ? ' (retour)' : ''}</b>${dirs}<small>100 % Max, sans TER · touche un jour pour voir les trains</small></div>
+    box.innerHTML = `<div class="cal-head"><b>Trains à 0 € par jour${state.calDir === 'ret' ? ' (retour)' : ''}</b>${dirs}<small id="cal-legend">100 % Max · touche un jour pour voir les trains</small></div>
       <div class="cal-grid">${WD.map(w => `<span class="cal-wd">${w}</span>`).join('')}${cells.join('')}</div>
       <div class="trends" id="trends">${loadingHTML('Chargement des tendances…')}</div>`;
     loadTrends();
+    loadCalPrices();
+  }
+
+  // Les jours sans train à 0 € : le prix le plus bas avec un TER ou un car (au départ ou à l'arrivée),
+  // demandé à part pour que le calendrier s'affiche tout de suite
+  const calPrices = {};
+  async function loadCalPrices() {
+    if (!opts.ter || !state.cal) return;
+    const key = state.cal.key;
+    let from = stationValue($('#s-from')), to = stationValue($('#s-to'));
+    if (state.calDir === 'ret') [from, to] = [to, from];
+    const legend = $('#cal-legend');
+    if (!calPrices[key]) {
+      if (legend) legend.innerHTML = `<span class="ld-inline"><span class="ld-track" aria-hidden="true"><i></i></span>Calcul des prix avec TER…</span>`;
+      try { calPrices[key] = (await api('/api/calendar', { from, to, prices: 1, nights: opts.nights ? 1 : 0, ...profileParams() })).days; }
+      catch { calPrices[key] = []; }
+    }
+    if (state.cal?.key !== key) return;                     // calendrier changé entre-temps
+    for (const d of calPrices[key]) {
+      const cell = $(`#cal .cal-day[data-day="${d.date}"]`);
+      if (!cell || cell.classList.contains('l1') || cell.classList.contains('l2') || cell.classList.contains('l3')) continue;
+      const price = `${nf.format(Math.round(d.price * 10) / 10)} €`;
+      cell.classList.add('paid');
+      cell.querySelector('span').innerHTML = `${d.n}<i>${price}</i>`;
+      const t = `Pas de train à 0 € · ${plural(d.n, 'trajet', 'trajets')} avec TER ou car, dès ${price}`;
+      cell.title = t;
+      cell.setAttribute('aria-label', `${fmtDay(d.date)} : ${t}`);
+    }
+    if (legend) legend.innerHTML = calPrices[key].length
+      ? `100 % Max en vert · <span class="cal-key-paid">avec TER ou car</span> : nombre de trajets et prix le plus bas`
+      : '100 % Max · touche un jour pour voir les trains';
   }
 
   // Tendances tirées de l'historique des places Max (enregistrées chaque jour par le serveur)

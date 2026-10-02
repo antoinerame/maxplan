@@ -55,7 +55,7 @@ def ter_estimated_notice():
 
 
 def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win, has_max,
-                    max_relays=None, quota=None):
+                    max_relays=None, quota=None, free=()):
     """TER ou car du lieu de départ jusqu'à une gare Max proche, puis trains Max. Pour chaque train Max
     au départ de la gare-relais, on cherche le TER qui part le plus tard en arrivant à temps (horaires
     locaux, aucune requête à l'API). Renvoie [(relais, chemin Max, géo du relais, trajet TER)]."""
@@ -105,10 +105,15 @@ def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win
             break
     jobs = []
     for rank, (s, g, paths) in enumerate(useful):
-        n_max = quota or (3, 2, 2, 1)[min(rank, 3)]
+        # trains répartis sur la journée (pas seulement le matin), et seulement ceux qui peuvent battre un
+        # trajet gratuit : arriver plus tôt, ou partir bien plus tard (Saint-Étienne : TER puis
+        # Lyon → Paris au lieu de 3 h d'attente à Part-Dieu)
+        n_max = quota or ((6, 3)[min(rank, 1)] if origins else (3, 2, 2, 1)[min(rank, 3)])
         kept, last = [], None
         for p in sorted(paths, key=lambda p: (p[-1]["arr"], -p[0]["dep"])):
             if any(e["d"] in skip and e["d"] not in targets for e in p):
+                continue
+            if any(fa <= p[-1]["arr"] and fd >= p[0]["dep"] - 60 for fd, fa in free):
                 continue
             if last is None or p[-1]["arr"] - last >= config.TER_ARRIVAL_SPACING_MIN:
                 kept.append(p)
@@ -250,6 +255,8 @@ def search_one_day(src, dst, date, opts):
                 return job, jr, ready, False
             # 2) en secours, l'API SNCF : elle connaît aussi les cars régionaux hors SNCF (ZOU!, etc.)
             #    absents du GTFS. Compté dans les budgets (global et par visiteur).
+            if opts.get("local_only"):          # calendrier des prix : horaires locaux seulement
+                return job, jr, ready, False
             if not IP_BUDGET.take(opts.get("ip", ""), 1):
                 opts["ter_limited"] = jr is None
                 return job, jr, ready, False
@@ -270,10 +277,12 @@ def search_one_day(src, dst, date, opts):
 
     # 3) TER au départ : depuis une ville sans train Max (Annecy, Gap) ou pour attraper un train Max
     #    d'une grande gare proche (Saint-Étienne → Lyon Part-Dieu), en partant le plus tard possible
-    # depuis une ville bien desservie (au moins 4 trajets Max ce jour-là), inutile de chercher plus loin
-    day_trips = [p for p in max_paths if not path_nocturnal(p)]
+    # (depuis une ville qui a des trains Max : seulement les grandes gares toutes proches, et seulement
+    # les trains qui peuvent faire mieux que les trajets gratuits)
+    free = [(p[0]["dep"], p[-1]["arr"]) for p in max_paths if not path_nocturnal(p)
+            and not ticket_price(path_tickets(p, origins, targets, o_near, t_near))]
     head_jobs = origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win,
-                                bool(max_paths)) if opts["ter"] and len(day_trips) < 4 else []
+                                bool(max_paths), free=free) if opts["ter"] else []
     for _, path, _, _ in head_jobs:
         labels.update(e for leg in path for e in (leg["o"], leg["d"]))
 

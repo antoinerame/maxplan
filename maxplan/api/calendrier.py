@@ -9,6 +9,7 @@ from maxplan.ter import prix
 from maxplan.api.commun import (
     BadRequest, _flag, _int, _p, _place, check_date, coming_dates, past_min, senior_weekend,
 )
+from maxplan.api.recherche import search_one_day
 from maxplan.api.trajets import DAY_POOL, edges_for, max_trips, od_areas, ter_coverage
 
 
@@ -21,6 +22,26 @@ def do_trends(qs):
     return historique.od_trends(gares.resolve_city(src, known), gares.resolve_city(dst, known))
 
 
+def calendar_prices(src, dst, prefs, maxconn, qs):
+    """Les jours sans train à 0 € : le prix le plus bas avec un TER ou un car (au départ ou à l'arrivée),
+    tel que la recherche le trouve (horaires locaux seulement, sans appel à l'API SNCF). Demandé à part
+    par l'interface, une fois le calendrier affiché."""
+    def one(date):
+        if senior_weekend(prefs, date):
+            return None
+        opts = {"prefs": prefs, "maxconn": maxconn, "ter": True, "ter_transfers": 3, "nights": False,
+                "ip": _p(qs, "_ip"), "local_only": True, "min_dep": past_min(date), "max_dep": 1440}
+        try:
+            its = search_one_day(src, dst, date, opts)["itineraries"]
+        except Exception:
+            return None
+        if not its or any(not it["paid"] for it in its):     # jour à 0 € : déjà dans le calendrier
+            return None
+        return {"date": date, "n": len(its), "price": min(it["cost_eur"] for it in its)}
+
+    return {"from": src, "to": dst, "days": [d for d in DAY_POOL.map(one, coming_dates()) if d]}
+
+
 def do_calendar(qs):
     """Nombre de trajets 100 % Max (sans TER) pour chaque jour de l'open data : le calendrier du mois."""
     src, dst = _place(qs, "from"), _place(qs, "to")
@@ -28,7 +49,10 @@ def do_calendar(qs):
         raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
     prefs = prix.prefs_from_qs(qs)
     maxconn, nights = _int(qs, "maxconn", 3, 0, 3), _flag(qs, "nights", False)
-    od_areas(src, dst, set(donnees.all_stations()))   # départ inconnu, même ville : erreur claire
+    # départ inconnu, même ville : erreur claire (départ sans train Max : jours à 0 vides, prix avec TER)
+    od_areas(src, dst, set(donnees.all_stations()), no_origin_ok=True)
+    if _flag(qs, "prices", False):
+        return calendar_prices(src, dst, prefs, maxconn, qs)
 
     def one(date):
         if senior_weekend(prefs, date):
@@ -39,8 +63,10 @@ def do_calendar(qs):
             return {"date": date, "n": None}
         stations = {e["o"] for e in edges} | {e["d"] for e in edges}
         try:
-            o, o_near, t, t_near = od_areas(src, dst, stations)
+            o, o_near, t, t_near = od_areas(src, dst, stations, no_origin_ok=True)
         except BadRequest:
+            return {"date": date, "n": 0}
+        if not o:
             return {"date": date, "n": 0}
         paths = parcours.search(edges, o, t, max_conn=maxconn, max_results=200, min_dep=past_min(date))
         its = max_trips(paths, o, t, o_near, t_near, nights=nights)   # comme la recherche les affiche
