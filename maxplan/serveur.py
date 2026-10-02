@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from maxplan import VERSION
 from maxplan import config
+from maxplan import pages
 from maxplan.ter import gtfs
 from maxplan.api.calendrier import do_calendar, do_calprices, do_ideas, do_trends
 from maxplan.api.commun import BadRequest, _p
@@ -233,6 +234,36 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, hit[1], ctype, headers, compressible=False)
         return self._send(200, body, ctype, headers, compressible=False)
 
+    def _seo_page(self, path):
+        """Pages par liaison (/tgv-max/…) et sitemap, rendues par le serveur pour les moteurs de recherche."""
+        try:
+            if path == "/sitemap.xml":
+                return self._send(200, pages.sitemap().encode("utf-8"), "application/xml; charset=utf-8")
+            if path == "/tgv-max":
+                return self._redirect("/tgv-max/")
+            name = path[len("/tgv-max/"):]
+            if not name:
+                body = pages.hub_page()
+            else:
+                pair = pages.parse_route(name.rstrip("/"))
+                if not pair:
+                    return self._send(404, "Page introuvable".encode("utf-8"), "text/plain; charset=utf-8")
+                if name != name.rstrip("/"):
+                    return self._redirect(pages.route_url(*pair))
+                body = pages.route_page(*pair)
+            return self._send(200, body.encode("utf-8"), "text/html; charset=utf-8")
+        except Exception:
+            traceback.print_exc()
+            return self._send(503, "Page indisponible, réessaie dans un instant.".encode("utf-8"),
+                              "text/plain; charset=utf-8", {"Retry-After": "60"})
+
+    def _redirect(self, location):
+        self.send_response(301)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self._common()
+        self.end_headers()
+
     def do_POST(self):
         u = urllib.parse.urlparse(self.path)
         if u.path != "/api/feedback":
@@ -272,6 +303,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, feedback_page().encode("utf-8"), "text/html; charset=utf-8",
                               {"Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer"})
 
+
+        if u.path == "/sitemap.xml" or u.path == "/tgv-max" or u.path.startswith("/tgv-max/"):
+            return self._seo_page(u.path)
 
         route = ROUTES.get(u.path)
         if not route:
