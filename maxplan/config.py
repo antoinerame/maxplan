@@ -50,6 +50,7 @@ RATE_LIMITS = {               # groupe -> (requêtes autorisées, fenêtre en se
     "stations": (120, 60),
     "nearest": (30, 60),
     "calendar": (12, 60),
+    "prices": (40, 60),            # prix du calendrier, demandés par lots de jours
     "feedback": (5, 600),
 }
 

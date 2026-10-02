@@ -22,10 +22,21 @@ def do_trends(qs):
     return historique.od_trends(gares.resolve_city(src, known), gares.resolve_city(dst, known))
 
 
-def calendar_prices(src, dst, prefs, maxconn, qs):
+def do_calprices(qs):
+    """/api/calprices?from&to&dates=AAAA-MM-JJ,… (5 jours au plus) : pour des jours sans train à 0 €, le
+    prix le plus bas avec un TER ou un car. L'interface les demande par petits lots, une fois le
+    calendrier affiché, et remplit les cases au fur et à mesure."""
+    src, dst = _place(qs, "from"), _place(qs, "to")
+    if not src or not dst:
+        raise BadRequest("Indique une gare de départ et une gare d'arrivée.")
+    dates = [check_date(d) for d in _p(qs, "dates").split(",") if d][:5]
+    prefs = prix.prefs_from_qs(qs)
+    return calendar_prices(src, dst, prefs, _int(qs, "maxconn", 3, 0, 3), qs, dates)
+
+
+def calendar_prices(src, dst, prefs, maxconn, qs, dates=None):
     """Les jours sans train à 0 € : le prix le plus bas avec un TER ou un car (au départ ou à l'arrivée),
-    tel que la recherche le trouve (horaires locaux seulement, sans appel à l'API SNCF). Demandé à part
-    par l'interface, une fois le calendrier affiché."""
+    tel que la recherche le trouve (horaires locaux seulement, sans appel à l'API SNCF)."""
     def one(date):
         if senior_weekend(prefs, date):
             return None
@@ -35,11 +46,11 @@ def calendar_prices(src, dst, prefs, maxconn, qs):
             its = search_one_day(src, dst, date, opts)["itineraries"]
         except Exception:
             return None
-        if not its or any(not it["paid"] for it in its):     # jour à 0 € : déjà dans le calendrier
-            return None
+        if not its or any(not it["paid"] for it in its):     # jour à 0 € ou sans rien : case inchangée
+            return {"date": date, "n": 0}
         return {"date": date, "n": len(its), "price": min(it["cost_eur"] for it in its)}
 
-    return {"from": src, "to": dst, "days": [d for d in DAY_POOL.map(one, coming_dates()) if d]}
+    return {"from": src, "to": dst, "days": list(DAY_POOL.map(one, dates or coming_dates()))}
 
 
 def do_calendar(qs):
@@ -51,8 +62,6 @@ def do_calendar(qs):
     maxconn, nights = _int(qs, "maxconn", 3, 0, 3), _flag(qs, "nights", False)
     # départ inconnu, même ville : erreur claire (départ sans train Max : jours à 0 vides, prix avec TER)
     od_areas(src, dst, set(donnees.all_stations()), no_origin_ok=True)
-    if _flag(qs, "prices", False):
-        return calendar_prices(src, dst, prefs, maxconn, qs)
 
     def one(date):
         if senior_weekend(prefs, date):
