@@ -56,6 +56,8 @@ CACHE_TTL = {"/api/insights": 1800, "/api/search": 900, "/api/calendar": 3600, "
 # tous lentement ; en file d'attente, chacun finit vite et les requêtes légères restent fluides.
 HEAVY = {"/api/search", "/api/calendar", "/api/value", "/api/trends", "/api/insights", "/api/ideas"}
 _HEAVY_SLOTS = threading.BoundedSemaphore(2)
+# prix du calendrier (≈ 20 s, en arrière-plan) : un seul à la fois, sans prendre la place des recherches
+_PRICE_SLOTS = threading.BoundedSemaphore(1)
 _RESP = {}
 _RESP_LOCK = threading.Lock()
 _INFLIGHT = {}            # requête en cours de calcul -> verrou (les suivantes identiques attendent)
@@ -78,7 +80,7 @@ def cached(path, fn, qs):
             return hit[1]
         try:
             if path in HEAVY:
-                with _HEAVY_SLOTS:
+                with _PRICE_SLOTS if qs.get("prices") else _HEAVY_SLOTS:
                     res = fn(qs)
             else:
                 res = fn(qs)
