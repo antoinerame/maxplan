@@ -54,6 +54,16 @@ def ter_estimated_notice():
             f"{when}. On reprend ceux du même jour de la semaine précédente ; vérifie sur SNCF Connect.")
 
 
+def spread(items, n):
+    """Au plus n éléments d'une liste triée par heure, répartis du premier au dernier (et non les n
+    premiers : sinon les trains du matin prennent toutes les places et le soir disparaît)."""
+    if len(items) <= n:
+        return items
+    if n <= 1:
+        return items[:n]
+    return [items[round(i * (len(items) - 1) / (n - 1))] for i in range(n)]
+
+
 def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win, has_max,
                     max_relays=None, quota=None, free=()):
     """TER ou car du lieu de départ jusqu'à une gare Max proche, puis trains Max. Pour chaque train Max
@@ -80,14 +90,21 @@ def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win
         # proche du départ, et sur le chemin (pas Annecy → Genève pour aller à Marseille)
         if km <= reach and km + to_dest <= config.DETOUR_MAX * max(direct, 1.0) and to_dest < direct + 30:
             cands.append((km, s, g))
-    cands.sort(key=lambda c: c[0])
-    # gares-relais qui ont vraiment des trains Max vers l'arrivée ce jour-là, les plus proches d'abord
-    useful = []
+    # gares-relais classées par nombre de trains Max utiles vers l'arrivée (ceux qui battent un trajet
+    # gratuit), puis par distance : depuis Grenoble, Lyon (92 km, beaucoup de TGV le soir) passe avant
+    # une gare plus proche mais peu desservie
+    win_paths = dict(max_conn=min(opts["maxconn"], 1), max_results=30, min_dep=win["min_dep"] + 20,
+                     max_dep=min(1440, win["max_dep"] + 300))   # aperçu : directs et 1 correspondance
+    scored = []
     for km, s, g in cands:
-        # d'abord (calcul léger) : cette gare a-t-elle des trains Max vers l'arrivée ?
-        if not parcours.search(edges, [s], targets, max_conn=opts["maxconn"], max_results=1,
-                               min_dep=win["min_dep"] + 20, max_dep=min(1440, win["max_dep"] + 300)):
-            continue
+        ps = [p for p in parcours.search(edges, [s], targets, **win_paths)
+              if not any(fa <= p[-1]["arr"] and fd >= p[0]["dep"] - 60 for fd, fa in free)]
+        if ps:
+            scored.append((-len({p[0]["dep"] for p in ps}), km, s, g))
+    scored.sort(key=lambda c: c[:2])
+    want = max_relays or (config.ORIGIN_TER_CANDIDATES if not (origins and has_max) else 3)
+    useful = []
+    for _, km, s, g in scored:
         # première arrivée possible en TER à la gare-relais : seuls les trains Max qui partent après comptent
         first = None
         for t0 in range(max(240, win["min_dep"]), min(1380, win["max_dep"]) + 1, 300):   # 4 h, 9 h, 14 h…
@@ -97,18 +114,18 @@ def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win
         if not first or first["duration_min"] > config.TER_MAX_TAIL_MIN:
             continue
         ready = first["arr_min"] + gares.min_connection(s)
-        paths = parcours.search(edges, [s], targets, max_conn=opts["maxconn"], max_results=40,
+        paths = parcours.search(edges, [s], targets, max_conn=opts["maxconn"], max_results=80,
                                 min_dep=ready, max_dep=min(1440, win["max_dep"] + 300))
         if paths:
             useful.append((s, g, paths))
-        if len(useful) >= (max_relays or (config.ORIGIN_TER_CANDIDATES if not (origins and has_max) else 2)):
+        if len(useful) >= want:
             break
     jobs = []
     for rank, (s, g, paths) in enumerate(useful):
         # trains répartis sur la journée (pas seulement le matin), et seulement ceux qui peuvent battre un
         # trajet gratuit : arriver plus tôt, ou partir bien plus tard (Saint-Étienne : TER puis
         # Lyon → Paris au lieu de 3 h d'attente à Part-Dieu)
-        n_max = quota or ((6, 3)[min(rank, 1)] if origins else (3, 2, 2, 1)[min(rank, 3)])
+        n_max = quota or ((8, 4)[min(rank, 1)] if origins else (5, 3, 2, 2)[min(rank, 3)])
         kept, last = [], None
         for p in sorted(paths, key=lambda p: (p[-1]["arr"], -p[0]["dep"])):
             if any(e["d"] in skip and e["d"] not in targets for e in p):
@@ -118,9 +135,7 @@ def origin_ter_jobs(src, dst, date, edges, stations, origins, targets, opts, win
             if last is None or p[-1]["arr"] - last >= config.TER_ARRIVAL_SPACING_MIN:
                 kept.append(p)
                 last = p[-1]["arr"]
-            if len(kept) >= n_max:
-                break
-        for p in kept:
+        for p in spread(kept, n_max):            # répartis sur la journée, pas seulement le matin
             deadline = p[0]["dep"] - gares.min_connection(s)
             jr = gtfs.journey_by(place["id"], g["id"], date, deadline)
             if not jr or jr["duration_min"] > config.TER_MAX_TAIL_MIN:
@@ -222,7 +237,7 @@ def search_one_day(src, dst, date, opts):
         jobs = []
         for rank, (km, s) in enumerate(ranked[:config.TER_CANDIDATES]):
             quota = config.TER_ARRIVALS_PER_RELAY[min(rank, len(config.TER_ARRIVALS_PER_RELAY) - 1)]
-            paths = parcours.search(edges, origins, [s], max_conn=opts["maxconn"], max_results=40, **win)
+            paths = parcours.search(edges, origins, [s], max_conn=opts["maxconn"], max_results=80, **win)
             kept, last_arr = [], None
             # même arrivée au relais : la variante sans ticket (Marne-la-Vallée plutôt que Roissy à 14 €)
             for p in sorted(paths, key=lambda p: (p[-1]["arr"], path_tickets(p, origins, [s], o_near, {}),
@@ -233,9 +248,7 @@ def search_one_day(src, dst, date, opts):
                 if last_arr is None or p[-1]["arr"] - last_arr >= config.TER_ARRIVAL_SPACING_MIN:
                     kept.append(p)
                     last_arr = p[-1]["arr"]
-                if len(kept) >= quota:
-                    break
-            jobs += [(s, fgeo[s], p) for p in kept]
+            jobs += [(s, fgeo[s], p) for p in spread(kept, quota)]   # matin, midi et soir
 
         # Inutile de calculer un TER perdu d'avance : si un trajet 100 % Max (de jour) part au plus tôt
         # pareil et arrive avant même la gare-relais, le complément serait de toute façon écarté au tri.
