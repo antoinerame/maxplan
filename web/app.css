@@ -777,3 +777,23 @@ html.busy .loadbar{opacity:1}
 .rp-foot{font-size:13px;color:var(--muted)!important;border-top:1px solid var(--line-soft);padding-top:14px}
 .faq.routes .rp-links{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
 .faq.routes .rp-links a{color:var(--primary);font-weight:700}
+
+/* poignée de la carte : languette arrondie sur le bord droit (carte fermée) ou contre la carte (ouverte) */
+.map-handle{display:none}
+.app[data-view="results"] .map-handle{position:fixed;z-index:1100;top:50%;transform:translateY(-50%);display:flex;flex-direction:row;align-items:center;gap:5px;padding:16px 11px 16px 9px;border:1px solid var(--line);border-right:0;border-radius:999px 0 0 999px;background:var(--surface);color:var(--ink);box-shadow:var(--shadow-2);font-weight:800;font-size:13.5px;cursor:pointer;right:0}
+.map-handle svg{width:23px;height:23px;color:var(--primary)}
+.map-handle span{writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:.04em}
+.map-handle i{font-style:normal;font-size:26px;font-weight:700;line-height:1;color:var(--primary)}
+.map-handle .mh-col{display:flex;flex-direction:column;align-items:center;gap:8px;font-weight:inherit}
+.map-handle:hover{background:var(--primary-soft)}
+@media (min-width:900px){
+  /* carte ouverte : la languette se colle contre le bord gauche de la carte et la replie */
+  .app[data-view="results"][data-map="on"] .map-handle{right:auto;left:var(--panel-w);border-right:1px solid var(--line);border-left:0;border-radius:0 999px 999px 0;padding:16px 9px 16px 11px}
+}
+@media (max-width:899px){
+  /* téléphone : bouton rond flottant en bas à droite */
+  .app[data-view="results"] .map-handle{top:auto;bottom:calc(16px + env(safe-area-inset-bottom,0px));right:16px;transform:none;flex-direction:row;gap:7px;padding:11px 16px;border:1px solid var(--line);border-radius:999px}
+  .app[data-view="results"] .map-handle span{writing-mode:horizontal-tb;transform:none}
+  .app[data-view="results"] .map-handle .mh-col{flex-direction:row;gap:7px}
+  .app[data-view="results"] .map-handle i{display:none}
+}

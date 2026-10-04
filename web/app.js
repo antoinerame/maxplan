@@ -356,8 +356,19 @@
     refreshView();
     renderResultsHeadOnly();
   }
-  const mapBtn = () => `<button class="btn ghost sm" type="button" data-map-toggle>${mapOn ? ICON.board : ICON.map}<span>${mapOn ? 'Masquer la carte' : 'Voir la carte'}</span></button>`;
-  function renderResultsHeadOnly() { $$('[data-map-toggle]').forEach(b => { b.outerHTML = mapBtn(); }); }
+  // poignée arrondie sur le bord droit (carte fermée) ou contre la carte (carte ouverte) : on voit qu'il
+  // y a quelque chose à déplier ; sur téléphone, bouton rond flottant
+  function renderResultsHeadOnly() {
+    const h = $('#map-handle');
+    if (!h) return;
+    // flèche à gauche de l'icône et du texte (carte fermée), à droite une fois ouverte
+    const arrow = `<i aria-hidden="true">${mapOn ? '›' : '‹'}</i>`;
+    const col = `<b class="mh-col">${mapOn ? '' : ICON.map}<span>${mapOn ? 'Masquer' : 'Carte'}</span></b>`;
+    h.innerHTML = mapOn ? col + arrow : arrow + col;
+    h.setAttribute('aria-expanded', String(mapOn));
+    h.setAttribute('aria-label', mapOn ? 'Masquer la carte' : 'Afficher la carte');
+    h.title = mapOn ? 'Masquer la carte' : 'Afficher la carte';
+  }
 
   /* ================================================================== champs gare (autocomplétion) */
   const stationValue = input => input.dataset.label || input.value.trim();
@@ -674,7 +685,7 @@
     html += `<div class="res-sum">${loaded < total ? `<span class="ld-inline"><span class="ld-track" aria-hidden="true"><i></i></span>Recherche ${loaded}/${total} jour${total > 1 ? 's' : ''}</span> · ` : ''}<b>${plural(all.length, 'trajet', 'trajets')}</b>`
       + (all.length ? ` · ${freeN ? `<b>${freeN}</b> à 0 €` : 'aucun à 0 €'}${cheapest != null ? ` · ${freeN ? 'sinon' : 'payants'} dès ${nf.format(cheapest)} €` : ''}` : '')
       + `<small>${esc(leg.fromName)} → ${esc(leg.toName)}</small></div>
-      <div class="res-tools">${mapBtn()}
+      <div class="res-tools">
         <button class="btn ghost sm" type="button" id="btn-share">${ICON.share}<span>Partager</span></button>
       </div>
       <div class="res-opts">
@@ -1100,7 +1111,7 @@
     box.innerHTML = `<div class="res-head">
         <div class="res-sum"><b>${plural(direct, 'gare', 'gares')} en direct</b> · ${plural(data.destinations.length - direct, 'avec correspondance', 'avec correspondance')}
           <small>Depuis ${esc(data.origin.name)}, ${fmtDay(data.date)} · touche une gare pour voir les trains</small></div>
-        <div class="res-tools">${mapBtn()}</div>
+
         <input class="ex-filter" id="ex-filter" type="search" placeholder="Filtrer les gares…" aria-label="Filtrer les gares">
         <p class="fresh">${ICON.clock}<span>${freshText()} Certaines places ont pu partir depuis : vérifie sur SNCF Connect.</span></p>
       </div>
@@ -1622,6 +1633,7 @@
 
   /* ================================================================== démarrage */
   async function init() {
+    renderResultsHeadOnly();               // poignée de la carte
     applyTheme();
     bindUI();
     renderProfileChip();
