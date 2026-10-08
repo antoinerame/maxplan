@@ -1425,8 +1425,7 @@
     setStation(b, av, al);
     $('#btn-swap').classList.toggle('spin');
     syncFav();
-    if (!$('#cal').hidden) { openCal(); return; }          // calendrier ouvert : on le montre dans l'autre sens
-    if (stationValue(a) && stationValue(b)) runSearch();   // sinon on relance directement dans l'autre sens
+    if (!$('#cal').hidden) openCal();                      // calendrier ouvert : on le montre dans l'autre sens
   }
 
   function bindUI() {
